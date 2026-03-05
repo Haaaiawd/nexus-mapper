@@ -88,18 +88,26 @@ repo_path: 目标仓库的本地绝对路径（必填）
 
 ## 🔄 PROBE 五阶段协议
 
-| 阶段 | 核心动作 | 完成标志 |
-|------|---------|--------|
-| **P**ROFILE | 运行脚本，产出 `raw/` 三个文件 | 三文件均非空 |
-| **R**EASON | 阅读 README/热点/文件树，识别 ≥3 个系统 | 每个系统有 1 句职责描述 + 初步 `code_path` |
-| **O**BJECT | 提出 ≥3 个反驳点，每点附代码引证 | 所有质疑有具体文件/行号证据 |
-| **B**ENCHMARK | 逐一验证异议，修正错误节点 | 所有节点 `code_path` 已亲手验证存在 |
-| **E**MIT | 原子写入全部 `.nexus-map/` 文件 | 全部文件通过 Schema 校验 |
+> [!IMPORTANT]
+> **Reference 文件不是附录，是阶段执行协议本身。** 每行「开始前必须读取」是硬性门控——
+> 未完成 read_file 调用即进入该阶段，视为协议违规，产出无效。
 
-各阶段详细步骤 → [`references/01-probe-protocol.md`](./references/01-probe-protocol.md)  
-输出 Schema 规范 → [`references/02-output-schema.md`](./references/02-output-schema.md)  
-边界案例处理 → [`references/03-edge-cases.md`](./references/03-edge-cases.md)  
-OBJECT 三维度质疑框架 → [`references/04-object-framework.md`](./references/04-object-framework.md)
+| 阶段 | 开始前必须读取（硬门控） | 核心动作 | 完成标志 |
+|------|------------------------|---------|--------|
+| **P**ROFILE | ⛔ `read_file references/01-probe-protocol.md` | 运行脚本，产出 `raw/` 三个文件 | 三文件均非空 |
+| **R**EASON | ⛔ `read_file references/03-edge-cases.md`（检查是否触发边界场景） | 阅读 README/热点/文件树，识别 ≥3 个系统 | 每个系统有 1 句职责描述 + 初步 `code_path` |
+| **O**BJECT | ⛔ `read_file references/04-object-framework.md` | 按三维度提出 ≥3 个反驳点，每点附代码引证 | 所有质疑有具体文件/行号证据 |
+| **B**ENCHMARK | （无额外文件，使用已加载的协议） | 逐一验证异议，修正错误节点 | 所有节点 `code_path` 已亲手验证存在 |
+| **E**MIT | ⛔ `read_file references/02-output-schema.md`（校验 Schema 后才能写文件） | 原子写入全部 `.nexus-map/` 文件 | 全部文件通过 Schema 校验 |
+
+**强制阅读顺序总览**（按触发时间排列，不得颠倒或跳过）：
+
+```
+[Skill 激活时]     → 读  01-probe-protocol.md   （阶段步骤蓝图）
+[REASON 前]        → 读  03-edge-cases.md        （确认是否命中边界场景）
+[OBJECT 前]        → 读  04-object-framework.md  （三维度质疑模板）
+[EMIT 前]          → 读  02-output-schema.md     （Schema 校验规范）
+```
 
 ---
 

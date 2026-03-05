@@ -1,6 +1,7 @@
 # PROBE 协议 — 各阶段详细步骤
 
-> L1 技术层 — 在执行对应阶段时按需加载
+> 本文件是 SKILL.md 的执行蓝图，Skill 激活后**第一步**即读取本文件。
+> 各阶段的 ⛔ 门控指令在下文中内嵌，必须按顺序执行，不得跳过。
 
 ---
 
@@ -38,6 +39,13 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 
 ## R — REASON 阶段
 
+> [!IMPORTANT]
+> **⛔ 阶段门控**：在开始阅读项目文件之前，必须先执行：
+> ```
+> read_file  references/03-edge-cases.md
+> ```
+> 目的：提前识别是否命中任何边界场景（无 git 历史、monorepo、非 git 仓库等），避免后续阶段错误执行。
+
 **阅读策略（优先级从高到低）**
 1. `README.md` / `README.rst` — 项目总体描述
 2. `pyproject.toml` / `package.json` / `pom.xml` — 技术栈与依赖
@@ -61,6 +69,13 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 
 ## O — OBJECT 阶段
 
+> [!IMPORTANT]
+> **⛔ 阶段门控**：在提出任何质疑点之前，必须先执行：
+> ```
+> read_file  references/04-object-framework.md
+> ```
+> 未读取该文件即提出质疑 → 视为形式主义，必须重做。三维度框架（Structure / Evolution / Dependency）是本阶段的执行依据，不是参考。
+
 **质疑协议 — 必须提出 ≥3 个质疑点，每个附代码引证**
 
 每个质疑点格式：
@@ -69,8 +84,6 @@ Q{N}: [具体的矛盾或可疑之处]
 证据线索: [在哪里发现的矛盾 — 文件路径/行号/git 数据]
 验证计划: [BENCHMARK 阶段如何验证]
 ```
-
-> 单独加载 OBJECT 阶段三维度质疑框架 → [`04-object-framework.md`](./04-object-framework.md)
 
 **质量判定**
 
@@ -118,6 +131,13 @@ Q2: application/weaving/ 目录命名暗示「语义织入」，但其下
 ---
 
 ## E — EMIT 阶段
+
+> [!IMPORTANT]
+> **⛔ 阶段门控**：在写入任何文件之前，必须先执行：
+> ```
+> read_file  references/02-output-schema.md
+> ```
+> 未读取该文件即写入 → 产出的 JSON/Markdown 结构无法通过 Schema 校验，视为无效。
 
 **幂等性检查（写入前必做）**
 
