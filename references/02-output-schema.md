@@ -10,7 +10,7 @@
 ### 顶层结构
 ```json
 {
-  "language": "python",
+  "languages": ["cpp", "python"],
   "stats": {
     "total_files": 101,
     "total_lines": 23184,
@@ -30,7 +30,8 @@
   "type": "Module",
   "label": "treesitter_parser",
   "path": "src/nexus/application/weaving/treesitter_parser.py",
-  "lines": 320
+  "lines": 320,
+  "lang": "python"
 }
 ```
 

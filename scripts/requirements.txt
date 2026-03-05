@@ -3,4 +3,6 @@
 # 在 Nexus 项目内部使用时，依赖已由 poetry 环境覆盖（tree-sitter ^0.25.2 + tree-sitter-language-pack）
 
 tree-sitter>=0.22.0
-tree-sitter-python
+tree-sitter-language-pack
+# fallback（仅在无法安装 language-pack 时使用，仅支持 Python 仓库）
+# tree-sitter-python

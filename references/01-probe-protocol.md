@@ -30,7 +30,7 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 > `$repo_path` 为目标仓库的绝对路径。
 
 **完成检查（任一失败 → 停止，不进入 REASON）**
-- [ ] `raw/ast_nodes.json` 非空，包含 `nodes` 字段
+- [ ] `raw/ast_nodes.json` 已写入（即使 `nodes` 为空列表也属正常——不支持的语言降级为空）
 - [ ] `raw/git_stats.json` 非空，包含 `hotspots` 字段
 - [ ] `raw/file_tree.txt` 非空
 
