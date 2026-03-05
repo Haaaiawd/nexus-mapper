@@ -1,44 +1,53 @@
-# nexus-mapper
+<p align="center">
+  <img src="Icon.png" alt="nexus-mapper" width="96" height="96">
+</p>
 
-> "你不是在写代码文档。你是在为下一个接手的 AI 建立思维基础。"
+<h1 align="center">nexus-mapper</h1>
 
-**nexus-mapper** 是一个 AI Agent Skill，让 AI 对任意本地 Git 仓库执行系统性探测，产出 `.nexus-map/` 分层知识库，供后续 AI 会话**冷启动**时快速建立上下文。
+<p align="center">
+  Build a persistent knowledge base for any codebase.<br>
+  New AI session, zero re-exploration.
+</p>
 
-## 安装
+<p align="center">
+  <a href="README.zh-CN.md">中文文档</a>
+</p>
 
-```bash
-npx skills add haaaiawd/nexus-mapper
+---
+
+## What you get
+
+Run nexus-mapper on a repository once. It writes a `.nexus-map/` directory with everything an AI needs to understand the codebase — architecture, boundaries, hot files, dependency graph. Next time you open a chat window, the AI reads one file and already knows where everything lives.
+
+```
+.nexus-map/
+├── INDEX.md              ← Load this first. Full architectural context, under 2000 tokens.
+├── arch/
+│   ├── systems.md        ← Every subsystem: what it owns, exactly where it sits in the repo.
+│   └── dependencies.md   ← How components connect. Rendered as a Mermaid dependency graph.
+├── concepts/
+│   ├── concept_model.json ← Machine-readable knowledge graph. Structured for programmatic use.
+│   └── domains.md        ← The domain language this codebase speaks, in plain terms.
+├── hotspots/
+│   └── git_forensics.md  ← Files that change constantly, and pairs that always change together.
+│                           These are where bugs hide and where changes break things.
+└── raw/                  ← Source data: AST nodes, git statistics, filtered file tree.
 ```
 
-安装后位于 `.agent/skills/nexus-mapper/`（或你的 skills 根目录）。
-
-兼容 Claude Code、GitHub Copilot、Cursor、Cline 等 18+ Agent 客户端（支持 `SKILL.md` 协议）。
+`INDEX.md` is the entry point. It is intentionally small — an AI can load it in full without truncation, and then navigate to deeper files as needed.
 
 ---
 
-## 它做什么
+## Prerequisites
 
-执行 **PROBE 五阶段探测协议**（Profile → Reason → Object → Benchmark → Emit），对目标仓库：
-
-1. **PROFILE** — 运行 `extract_ast.py` + `git_detective.py`，采集 AST、Git 热点、文件树
-2. **REASON** — AI 阅读 README / 热点 / 文件树，识别 ≥3 个系统边界
-3. **OBJECT** — 三维度（结构/演化/依赖）提出 ≥3 个带代码引证的质疑点
-4. **BENCHMARK** — 逐一验证质疑，修正所有节点的 `code_path`
-5. **EMIT** — 原子写入 `.nexus-map/` 知识库，Schema 校验通过后生效
-
-产出物供任何 AI 一次 `read_file .nexus-map/INDEX.md` 即可冷启动。
-
----
-
-## 前提条件
-
-| 要求 | 说明 |
-|------|------|
+| Requirement | Check |
+|-------------|-------|
 | Python 3.10+ | `python --version` |
-| 本地 Git 仓库 | `$repo_path/.git` 必须存在 |
-| shell 执行能力 | Agent 环境需支持 `run_command` |
+| Shell execution | Your AI client must support running terminal commands |
 
-**安装脚本依赖**（首次使用）：
+A git repository is recommended but not required. Without git history, the `hotspots/` analysis is skipped; everything else runs normally.
+
+**Install script dependencies before first use:**
 
 ```bash
 pip install -r .agent/skills/nexus-mapper/scripts/requirements.txt
@@ -46,81 +55,58 @@ pip install -r .agent/skills/nexus-mapper/scripts/requirements.txt
 
 ---
 
-## 语言支持
+## Install
 
-基于 `tree-sitter-language-pack`，支持 **17+ 语言**自动 dispatch：
+```bash
+npx skills add haaaiawd/nexus-mapper
+```
 
-| 语言 | 扩展名 |
-|------|--------|
-| Python | `.py` |
-| JavaScript / JSX | `.js` / `.jsx` |
-| TypeScript / TSX | `.ts` / `.tsx` / `.mts` |
-| Java | `.java` |
-| Go | `.go` |
-| Rust | `.rs` |
-| C++ / C | `.cpp` / `.hpp` / `.cc` / `.cxx` / `.hxx` / `.c` / `.h` |
-| C# | `.cs` |
-| Kotlin | `.kt` |
-| Ruby | `.rb` |
-| Swift | `.swift` |
-| Scala | `.scala` |
-| PHP | `.php` |
-| Lua | `.lua` |
-| Elixir | `.ex` / `.exs` |
-
-未知扩展名静默跳过，不影响其他文件分析。
+Works with Claude Code, GitHub Copilot, Cursor, Cline, and any client that reads `SKILL.md`.
 
 ---
 
-## 产出结构
+## Usage
 
-```text
-.nexus-map/
-├── INDEX.md                    ← AI 冷启动主入口（< 2000 tokens）
-├── arch/
-│   ├── systems.md              ← 系统边界 + 代码位置
-│   └── dependencies.md         ← Mermaid 依赖图
-├── concepts/
-│   ├── concept_model.json      ← Schema V1 机器可读图谱
-│   └── domains.md              ← 核心领域说明
-├── hotspots/
-│   └── git_forensics.md        ← Git 热点 + 耦合对
-└── raw/
-    ├── ast_nodes.json          ← Tree-sitter 原始数据
-    ├── git_stats.json          ← Git 热点与耦合数据
-    └── file_tree.txt           ← 过滤后的文件树
+Point your AI at a local repository path:
+
+```
+Analyze /Users/me/projects/my-app and generate a knowledge map
 ```
 
-下次打开该项目时，只需要 AI 读取 `INDEX.md` 即可恢复完整上下文。
+The AI runs the analysis, then writes `.nexus-map/` into the repository root. The next time you — or any other AI — needs to work on that codebase, start with:
+
+```
+Read .nexus-map/INDEX.md
+```
+
+That's the full context, compressed and ready.
 
 ---
 
-## 使用示例
+## Language support
 
-在支持的 Agent 客户端中输入：
+Parses 17+ languages automatically by file extension.
 
-```
-帮我分析 /Users/me/projects/my-app 这个项目，生成知识库
-```
+Python · JavaScript · JSX · TypeScript · TSX · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir
 
-AI 将自动激活 nexus-mapper，执行 PROBE 协议，并在仓库根目录写入 `.nexus-map/`。
+Unknown extensions are skipped silently. Mixed-language repositories work without any configuration.
 
 ---
 
-## 项目结构
+## Skill structure
 
-```text
+```
 nexus-mapper/
-├── SKILL.md              ← 技能入口（PROBE 协议以及执行守则）
+├── SKILL.md                      ← Execution protocol and guardrails
 ├── scripts/
-│   ├── extract_ast.py    ← Tree-sitter 多语言 AST 提取器
-│   ├── git_detective.py  ← Git 热点与耦合对分析
-│   └── requirements.txt  ← Python 依赖
+│   ├── extract_ast.py            ← Multi-language AST extractor
+│   ├── git_detective.py          ← Git hotspot and coupling analysis
+│   └── requirements.txt
 └── references/
-    ├── 01-probe-protocol.md    ← PROBE 各阶段详细步骤（PROFILE 门控）
-    ├── 02-output-schema.md     ← 输出 Schema 规范（EMIT 门控）
-    ├── 03-edge-cases.md        ← 边界案例处理（REASON 门控）
-    └── 04-object-framework.md  ← 三维度质疑框架（OBJECT 门控）
+    ├── 01-probe-protocol.md      ← Stage-by-stage execution blueprint
+    ├── 02-output-schema.md       ← Output schema reference
+    ├── 03-edge-cases.md          ← Edge case handling (monorepos, no git, etc.)
+    └── 04-object-framework.md    ← Adversarial validation framework
 ```
 
 ---
@@ -128,3 +114,4 @@ nexus-mapper/
 ## License
 
 MIT
+
