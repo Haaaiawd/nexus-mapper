@@ -75,18 +75,18 @@
   - `systems.md` 和 `dependencies.md` 里涉及该语言的细粒度结构结论要保守表述
   - 允许产出 Module 级边界，但类/函数级结论需补充 provenance 说明
 
-  ### 仓库本地覆盖配置声明了语言，但当前环境没有可用 parser
+  ### 通过 CLI 或显式配置补充了语言，但当前环境没有可用 parser
 
-  - 现象：仓库存在 `.nexus-mapper/language-overrides.json`，其中把某些扩展名映射到 tree-sitter 语言名，但 `ast_nodes.json.stats.configured_but_unavailable_file_counts` 非空
+  - 现象：agent 通过 `--add-extension` / `--language-config` 补充了语言映射，但 `ast_nodes.json.stats.configured_but_unavailable_file_counts` 非空
   - 处理：继续执行，不中止；但必须把这部分视为 **未覆盖**，而不是 `module-only`
   - EMIT 要求：
-    - `INDEX.md` 和 `systems.md` 说明本次确实加载了 repo 本地覆盖配置，但对应 parser 在当前环境不可用
+    - `INDEX.md` 和 `systems.md` 说明本次确实尝试补充语言支持，但对应 parser 在当前环境不可用
     - `dependencies.md` 中涉及该语言的结论只能写成 `manual inspection` 或 `inferred`
     - 如果后续 agent 要补齐支持，应优先修正 parser 名称或环境，而不是伪造 query 结果
 
-  ### 仓库本地覆盖配置补充了语言 query
+  ### 通过 CLI 或显式配置补充了语言 query
 
-  - 现象：仓库存在 `.nexus-mapper/language-overrides.json`，且 `ast_nodes.json.stats.languages_with_custom_queries` 非空
+  - 现象：agent 通过 `--add-query` 或 `--language-config` 补充了 query，且 `ast_nodes.json.stats.languages_with_custom_queries` 非空
   - 处理：继续执行，不中止；这属于正式能力，不应当被视为“实验性旁路”
   - EMIT 要求：
     - 对自定义 query 覆盖的语言保持与内建语言同等标准

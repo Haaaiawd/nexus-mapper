@@ -41,7 +41,7 @@ The mapper challenges its own first-pass hypothesis before it writes final asset
 
 Every generated Markdown file carries a small provenance header with `verified_at` and downgrade notes. If the repository contains known-but-unsupported languages, or languages that only have module-level AST coverage, nexus-mapper must say so explicitly instead of overstating parser confidence.
 
-If a repository needs extra language support, it can add `.nexus-mapper/language-overrides.json`. That file lets future agents extend extension mappings and Tree-sitter queries without editing the core extractor.
+If a repository needs extra language support beyond the built-in language set, an agent should first extend the analysis through command-line inputs such as `--add-extension` and `--add-query`. If the setup becomes too large or the queries are too long for one command, the agent can then switch to `--language-config <JSON_FILE>` as an explicit input.
 
 ---
 
@@ -87,6 +87,16 @@ Read .nexus-map/INDEX.md
 
 That's the full context, compressed and ready.
 
+For the best long-term behavior, add a short persistent instruction to your host tool's memory file such as `AGENTS.md`, `CLAUDE.md`, or an equivalent file:
+
+```md
+If .nexus-map/INDEX.md exists, read it before starting work to restore project context.
+
+When a task changes the project's structural understanding, assess whether .nexus-map should be updated before delivery. Structural understanding includes system boundaries, entrypoints, dependencies, test surface, language support, roadmap, and stage/progress facts. Pure local implementation details do not require a map update by default.
+
+Treat .nexus-map as part of the project's memory, not as static documentation.
+```
+
 ---
 
 ## Language support
@@ -95,13 +105,21 @@ Parses 17+ languages automatically by file extension.
 
 Python · JavaScript · JSX · TypeScript · TSX · Bash · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir · GDScript · Dart · Haskell · Clojure · SQL · Proto · Solidity · Vue · Svelte · R · Perl
 
-Not every listed language has the same depth. Some are full structural parses, some are currently module-only, and some may be configured in-repo but still unavailable if no parser can be loaded. The output metadata tells you which is which.
+Not every listed language has the same depth. Some are full structural parses, some are currently module-only, and some may be explicitly requested but still unavailable if no parser can be loaded. The output metadata tells you which is which.
 
 Unknown extensions are skipped silently. Mixed-language repositories work without any configuration.
 
-### Repo-local language overrides
+### Extending language support
 
-If built-in coverage is not enough, add `.nexus-mapper/language-overrides.json` in the target repository:
+If built-in coverage is not enough, first extend the run directly from the command line:
+
+```bash
+python skills/nexus-mapper/scripts/extract_ast.py <repo_path> \
+  --add-extension .templ=templ \
+  --add-query templ struct "(component_declaration name: (identifier) @class.name) @class.def"
+```
+
+If the configuration is too large for a single command, pass a JSON file explicitly:
 
 ```json
 {
@@ -121,7 +139,12 @@ If built-in coverage is not enough, add `.nexus-mapper/language-overrides.json` 
 }
 ```
 
-This keeps every language on the same contract: structural coverage if a parser and query exist, module-only if only the parser is available, configured-but-unavailable if the repo asked for a language but the environment cannot load it, unsupported if it is explicitly marked as such.
+```bash
+python skills/nexus-mapper/scripts/extract_ast.py <repo_path> \
+  --language-config /custom/path/to/language-config.json
+```
+
+This keeps every language on the same contract: structural coverage if a parser and query exist, module-only if only the parser is available, configured-but-unavailable if the agent explicitly asked for a language but the environment cannot load it, unsupported if it is explicitly marked as such.
 
 ---
 
@@ -144,7 +167,8 @@ nexus-mapper/
       ├── 01-probe-protocol.md
       ├── 02-output-schema.md
       ├── 03-edge-cases.md
-      └── 04-object-framework.md
+      ├── 04-object-framework.md
+      └── 05-language-customization.md
 ```
 
 If you are copying just the skill payload into another agent workspace, copy the `skills/nexus-mapper/` directory.

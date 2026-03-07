@@ -24,10 +24,10 @@
     "module_only_file_counts": {"vue": 12},
     "known_unsupported_file_counts": {"customdsl": 24},
     "configured_but_unavailable_file_counts": {"templ": 6},
-    "custom_language_config_paths": ["/repo/.nexus-mapper/language-overrides.json"]
+    "custom_language_config_paths": ["/custom/path/to/language-config.json"]
   },
   "warnings": [
-    "custom language configuration loaded: /repo/.nexus-mapper/language-overrides.json",
+    "custom language configuration loaded: /custom/path/to/language-config.json",
     "some languages were parsed with module-only coverage because no structural query template is bundled: vue (12 files)",
     "known unsupported languages present; downstream outputs must mark inferred sections explicitly: customdsl (24 files)",
     "some configured languages were detected in source files but no parser could be loaded: templ (6 files)"
@@ -87,11 +87,11 @@
 |------|------|
 | `supported_file_counts` | 成功进入 AST 流程的文件数（包含完整结构覆盖和 module-only 覆盖） |
 | `languages_with_structural_queries` | 当前 bundled query 模板覆盖到的语言 |
-| `languages_with_custom_queries` | 通过 repo 本地覆盖配置新增或覆盖 query 的语言 |
+| `languages_with_custom_queries` | 通过 `--add-query` 或 `--language-config` 新增或覆盖 query 的语言 |
 | `module_only_file_counts` | grammar 可加载，但当前没有结构 query，只产出 Module 节点的语言 |
 | `known_unsupported_file_counts` | 已知存在但完全未进入 AST 流程的语言 |
-| `configured_but_unavailable_file_counts` | 仓库配置声明了该语言，但当前环境没有可用 parser，因此未进入 AST 流程 |
-| `custom_language_config_paths` | 本次实际加载的 repo 本地语言覆盖配置路径 |
+| `configured_but_unavailable_file_counts` | agent 明确要求支持该语言，但当前环境没有可用 parser，因此未进入 AST 流程 |
+| `custom_language_config_paths` | 本次实际加载的显式语言配置文件路径；纯 CLI 模式下为空 |
 
 ---
 
@@ -133,10 +133,10 @@
 > provenance: AST-backed for Python; some custom DSL files were detected but not parsed by bundled AST tooling, so the affected dependency notes below are inferred from file tree and manual inspection.
 ```
 
-若存在 repo 本地语言覆盖配置，也建议补充一句其状态，例如：
+若存在显式语言配置文件，也建议补充一句其状态，例如：
 
 ```markdown
-> provenance: Custom language overrides were loaded from .nexus-mapper/language-overrides.json; files mapped to templ remain configured-but-unavailable in this environment because no parser could be loaded.
+> provenance: Custom language overrides were loaded from /custom/path/to/language-config.json; files mapped to templ remain configured-but-unavailable in this environment because no parser could be loaded.
 ```
 
 ---

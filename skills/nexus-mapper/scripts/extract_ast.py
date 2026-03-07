@@ -11,7 +11,7 @@ import sys
 import json
 import argparse
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 
 EXCLUDE_DIRS = {'.git', '__pycache__', '.venv', 'venv', 'node_modules',
@@ -237,11 +237,6 @@ BUILTIN_LANG_QUERIES: dict[str, dict[str, str]] = {
     },
 }
 
-DEFAULT_LANGUAGE_CONFIG_PATHS = (
-    '.nexus-mapper/language-overrides.json',
-)
-
-
 def _normalize_extension(ext: str) -> str:
     normalized = ext.strip().lower()
     if not normalized:
@@ -261,9 +256,70 @@ def _copy_lang_queries(source: dict[str, dict[str, str]]) -> dict[str, dict[str,
     }
 
 
+def _apply_cli_customizations(
+    cli_extensions: list[str] | None,
+    cli_queries: list[list[str]] | None,
+) -> tuple[
+    dict[str, str],
+    dict[str, dict[str, str]],
+    list[str],
+    dict[str, str],
+]:
+    """
+    从命令行参数应用语言自定义（--add-extension 和 --add-query）。
+    返回 (extension_override, query_override, warnings)
+    """
+    extension_override: dict[str, str] = {}
+    query_override: dict[str, dict[str, str]] = {}
+    warnings: list[str] = []
+    custom_query_languages: dict[str, str] = {}
+
+    if cli_extensions:
+        for item in cli_extensions:
+            if '=' not in item:
+                warnings.append(f'ignored invalid extension mapping {item!r}, expected EXT=LANG')
+                continue
+            ext_part, lang_part = item.split('=', 1)
+            try:
+                ext = _normalize_extension(ext_part)
+                lang = lang_part.strip().lower()
+                if not lang:
+                    warnings.append(f'ignored empty language name for extension {ext_part!r}')
+                    continue
+                extension_override[ext] = lang
+            except ValueError as e:
+                warnings.append(f'ignored invalid extension {ext_part!r}: {e}')
+                continue
+
+    if cli_queries:
+        for query_item in cli_queries:
+            if len(query_item) != 3:
+                warnings.append(f'ignored malformed query: expected 3 parts, got {len(query_item)}')
+                continue
+            lang, query_type, query_str = query_item
+            lang = lang.strip().lower()
+            if not lang:
+                warnings.append('ignored empty language name in query')
+                continue
+            if query_type not in ('struct', 'imports'):
+                warnings.append(f'ignored unknown query type {query_type!r} for language {lang!r}')
+                continue
+
+            if lang not in query_override:
+                query_override[lang] = {'struct': '', 'imports': ''}
+            query_override[lang][query_type] = query_str
+            custom_query_languages[lang] = '<cli>'
+
+    return extension_override, query_override, warnings, custom_query_languages
+
+
 def _load_language_customizations(
     repo_path: Path,
     explicit_config_path: Optional[str],
+    cli_extension_override: dict[str, str],
+    cli_query_override: dict[str, dict[str, str]],
+    cli_warnings: list[str],
+    cli_custom_query_languages: dict[str, str],
 ) -> tuple[
     dict[str, str],
     dict[str, dict[str, str]],
@@ -272,122 +328,98 @@ def _load_language_customizations(
     list[str],
     dict[str, str],
 ]:
-    """加载 repo 本地语言覆盖配置。
-
-    配置文件为 JSON，允许 future agents 在不修改核心脚本的前提下：
-    - 新增/覆盖扩展名 -> tree-sitter 语言名
-    - 为语言新增/覆盖 struct/imports query
-    - 显式声明当前仍不支持的扩展名
+    """
+    加载和合并语言自定义配置。
+    
+    优先级：CLI --language-config > CLI --add-* 参数 > 内置配置
+    
+    返回 (extension_map, lang_queries, known_unsupported_extensions, warnings, loaded_config_paths, custom_query_languages)
     """
     extension_map = dict(BUILTIN_EXTENSION_MAP)
     lang_queries = _copy_lang_queries(BUILTIN_LANG_QUERIES)
     known_unsupported_extensions = dict(BUILTIN_KNOWN_UNSUPPORTED_EXTENSIONS)
-    warnings: list[str] = []
+    warnings: list[str] = list(cli_warnings)
     loaded_config_paths: list[str] = []
-    custom_query_languages: dict[str, str] = {}
+    custom_query_languages: dict[str, str] = dict(cli_custom_query_languages)
 
-    candidate_paths: list[Path] = []
+    # 首先合并 CLI 参数的自定义
+    extension_map.update(cli_extension_override)
+    for lang, query_parts in cli_query_override.items():
+        if lang in lang_queries:
+            # 只覆盖提供的部分
+            if query_parts.get('struct'):
+                lang_queries[lang]['struct'] = query_parts['struct']
+            if query_parts.get('imports'):
+                lang_queries[lang]['imports'] = query_parts['imports']
+        else:
+            lang_queries[lang] = query_parts
+
+    # 然后加载 --language-config 文件（如果提供），优先级最高
     if explicit_config_path:
-        candidate_paths.append(Path(explicit_config_path))
-    else:
-        for relative_path in DEFAULT_LANGUAGE_CONFIG_PATHS:
-            candidate = repo_path / relative_path
-            if candidate.exists():
-                candidate_paths.append(candidate)
-
-    for config_path in candidate_paths:
+        config_path = Path(explicit_config_path)
         resolved_path = config_path if config_path.is_absolute() else (repo_path / config_path)
+
         try:
             config_data = json.loads(resolved_path.read_text(encoding='utf-8'))
         except FileNotFoundError:
             warnings.append(f'language config not found: {resolved_path}')
-            continue
+            return extension_map, lang_queries, known_unsupported_extensions, warnings, loaded_config_paths, custom_query_languages
         except json.JSONDecodeError as exc:
             warnings.append(f'language config parse error in {resolved_path}: {exc}')
-            continue
+            return extension_map, lang_queries, known_unsupported_extensions, warnings, loaded_config_paths, custom_query_languages
         except OSError as exc:
             warnings.append(f'language config read error in {resolved_path}: {exc}')
-            continue
+            return extension_map, lang_queries, known_unsupported_extensions, warnings, loaded_config_paths, custom_query_languages
 
         if not isinstance(config_data, dict):
             warnings.append(f'language config ignored because root value is not an object: {resolved_path}')
-            continue
+            return extension_map, lang_queries, known_unsupported_extensions, warnings, loaded_config_paths, custom_query_languages
 
         loaded_config_paths.append(str(resolved_path))
 
+        # 从 --language-config 加载扩展名映射
         extensions = config_data.get('extensions', {})
-        if extensions is not None and not isinstance(extensions, dict):
-            warnings.append(f'language config field "extensions" must be an object: {resolved_path}')
-            extensions = {}
-        for raw_ext, raw_lang in extensions.items():
-            if not isinstance(raw_ext, str) or not isinstance(raw_lang, str) or not raw_lang.strip():
-                warnings.append(
-                    f'ignored invalid extension mapping in {resolved_path}: {raw_ext!r} -> {raw_lang!r}'
-                )
-                continue
-            ext = _normalize_extension(raw_ext)
-            lang = raw_lang.strip().lower()
-            extension_map[ext] = lang
-            known_unsupported_extensions.pop(ext, None)
+        if isinstance(extensions, dict):
+            for raw_ext, raw_lang in extensions.items():
+                if isinstance(raw_ext, str) and isinstance(raw_lang, str) and raw_lang.strip():
+                    try:
+                        ext = _normalize_extension(raw_ext)
+                        lang = raw_lang.strip().lower()
+                        extension_map[ext] = lang
+                        known_unsupported_extensions.pop(ext, None)
+                    except ValueError:
+                        pass
 
+        # 从 --language-config 加载查询
         queries = config_data.get('queries', {})
-        if queries is not None and not isinstance(queries, dict):
-            warnings.append(f'language config field "queries" must be an object: {resolved_path}')
-            queries = {}
-        for raw_lang, raw_query_parts in queries.items():
-            if not isinstance(raw_lang, str) or not raw_lang.strip():
-                warnings.append(f'ignored invalid query language key in {resolved_path}: {raw_lang!r}')
-                continue
-            if not isinstance(raw_query_parts, dict):
-                warnings.append(
-                    f'ignored invalid query config in {resolved_path}: {raw_lang!r} must map to an object'
-                )
-                continue
+        if isinstance(queries, dict):
+            for raw_lang, raw_query_parts in queries.items():
+                if isinstance(raw_lang, str) and raw_lang.strip() and isinstance(raw_query_parts, dict):
+                    lang = raw_lang.strip().lower()
+                    struct_query = raw_query_parts.get('struct', '')
+                    imports_query = raw_query_parts.get('imports', '')
+                    if isinstance(struct_query, str) and isinstance(imports_query, str):
+                        lang_queries[lang] = {
+                            'struct': struct_query,
+                            'imports': imports_query,
+                        }
+                        custom_query_languages[lang] = str(resolved_path)
 
-            lang = raw_lang.strip().lower()
-            struct_query = raw_query_parts.get('struct', '')
-            imports_query = raw_query_parts.get('imports', '')
-            if struct_query is None:
-                struct_query = ''
-            if imports_query is None:
-                imports_query = ''
-            if not isinstance(struct_query, str) or not isinstance(imports_query, str):
-                warnings.append(
-                    f'ignored invalid query strings in {resolved_path}: {raw_lang!r}'
-                )
-                continue
-
-            lang_queries[lang] = {
-                'struct': struct_query,
-                'imports': imports_query,
-            }
-            custom_query_languages[lang] = str(resolved_path)
-
+        # 从 --language-config 加载不支持的扩展名
         unsupported_extensions = config_data.get('unsupported_extensions', {})
-        if unsupported_extensions is not None and not isinstance(unsupported_extensions, dict):
-            warnings.append(
-                f'language config field "unsupported_extensions" must be an object: {resolved_path}'
-            )
-            unsupported_extensions = {}
-        for raw_ext, raw_lang in unsupported_extensions.items():
-            if not isinstance(raw_ext, str) or not isinstance(raw_lang, str) or not raw_lang.strip():
-                warnings.append(
-                    f'ignored invalid unsupported extension mapping in {resolved_path}: {raw_ext!r} -> {raw_lang!r}'
-                )
-                continue
-            ext = _normalize_extension(raw_ext)
-            lang = raw_lang.strip().lower()
-            known_unsupported_extensions[ext] = lang
-            extension_map.pop(ext, None)
+        if isinstance(unsupported_extensions, dict):
+            for raw_ext, raw_lang in unsupported_extensions.items():
+                if isinstance(raw_ext, str) and isinstance(raw_lang, str) and raw_lang.strip():
+                    try:
+                        ext = _normalize_extension(raw_ext)
+                        lang = raw_lang.strip().lower()
+                        known_unsupported_extensions[ext] = lang
+                        extension_map.pop(ext, None)
+                    except ValueError:
+                        pass
 
-    return (
-        extension_map,
-        lang_queries,
-        known_unsupported_extensions,
-        warnings,
-        loaded_config_paths,
-        custom_query_languages,
-    )
+    return extension_map, lang_queries, known_unsupported_extensions, warnings, loaded_config_paths, custom_query_languages
+
 
 
 def _load_languages(
@@ -403,7 +435,7 @@ def _load_languages(
         from tree_sitter_language_pack import get_language as _get
 
         def get_language(name: str) -> Any:
-            return _get(name)
+            return _get(cast(Any, name))
     except ImportError:
         # 仅 Python 单语言包 fallback
         try:
@@ -660,8 +692,23 @@ def main() -> None:
     parser.add_argument('--max-nodes', type=int, default=500,
                         help='Max nodes in output (default: 500). Truncates Function nodes first.')
     parser.add_argument(
+        '--add-extension',
+        action='append',
+        dest='add_extensions',
+        metavar='EXT=LANG',
+        help='Add extension mapping, e.g., .templ=templ. Can be used multiple times.',
+    )
+    parser.add_argument(
+        '--add-query',
+        action='append',
+        dest='add_queries',
+        nargs=3,
+        metavar=('LANG', 'TYPE', 'QUERY'),
+        help='Add/override a query for a language. TYPE is "struct" or "imports". Can be used multiple times.',
+    )
+    parser.add_argument(
         '--language-config',
-        help='Optional JSON file that adds or overrides extension mappings and tree-sitter queries',
+        help='Optional JSON file that adds or overrides extension mappings and tree-sitter queries. Useful for complex configurations.',
     )
     args = parser.parse_args()
 
@@ -672,6 +719,13 @@ def main() -> None:
     if not (repo_path / '.git').exists():
         sys.stderr.write(f"[WARNING] .git not found in {repo_path}, may not be a git repo\n")
 
+    # 处理 CLI 自定义参数
+    cli_ext_override, cli_query_override, cli_warnings, cli_custom_query_languages = _apply_cli_customizations(
+        args.add_extensions,
+        args.add_queries,
+    )
+
+    # 加载和合并配置
     (
         extension_map,
         lang_queries,
@@ -679,7 +733,14 @@ def main() -> None:
         config_warnings,
         loaded_config_paths,
         custom_query_languages,
-    ) = _load_language_customizations(repo_path, args.language_config)
+    ) = _load_language_customizations(
+        repo_path,
+        args.language_config,
+        cli_ext_override,
+        cli_query_override,
+        cli_warnings,
+        cli_custom_query_languages,
+    )
 
     languages = _load_languages(extension_map, lang_queries)
     (

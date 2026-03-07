@@ -20,9 +20,15 @@
 python $SKILL_DIR/scripts/extract_ast.py $repo_path [--max-nodes 500] \
   > $repo_path/.nexus-map/raw/ast_nodes.json
 
-# 若仓库包含自定义语言覆盖配置，也可显式传入
+# 若仓库包含内置未覆盖的语言，可先通过命令行参数补充支持
 python $SKILL_DIR/scripts/extract_ast.py $repo_path [--max-nodes 500] \
-  [--language-config $repo_path/.nexus-mapper/language-overrides.json] \
+  --add-extension .templ=templ \
+  --add-query templ struct "(component_declaration name: (identifier) @class.name) @class.def" \
+  > $repo_path/.nexus-map/raw/ast_nodes.json
+
+# 若扩展项较多，也可显式传入自定义语言配置文件
+python $SKILL_DIR/scripts/extract_ast.py $repo_path [--max-nodes 500] \
+  [--language-config /custom/path/to/language-config.json] \
   > $repo_path/.nexus-map/raw/ast_nodes.json
 
 # 步骤 2: 运行 git 热点分析（仅在存在 .git 时）
@@ -44,7 +50,7 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 - [ ] 若不存在 git 历史：已明确记录这是一次无 git 降级探测
 - [ ] 若 `ast_nodes.json.stats.known_unsupported_file_counts` 非空：已记录本次语言覆盖降级，后续输出必须显式标注 provenance
 - [ ] 若 `ast_nodes.json.stats.module_only_file_counts` 非空：已记录哪些语言只有 Module 级覆盖，后续输出不得把这些语言描述为完整结构 AST 覆盖
-- [ ] 若 `ast_nodes.json.stats.configured_but_unavailable_file_counts` 非空：已记录哪些语言虽然通过 repo 本地配置声明，但当前环境没有可用 parser，后续输出必须把这部分视为未覆盖
+- [ ] 若 `ast_nodes.json.stats.configured_but_unavailable_file_counts` 非空：已记录哪些语言虽然通过 CLI 或显式配置声明，但当前环境没有可用 parser，后续输出必须把这部分视为未覆盖
 
 ---
 

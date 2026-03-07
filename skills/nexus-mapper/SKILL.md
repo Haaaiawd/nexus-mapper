@@ -65,12 +65,15 @@ repo_path: 目标仓库的本地绝对路径（必填）
 
 **语言支持**：自动按文件扩展名 dispatch，优先用 bundled structural queries 提取模块/类/函数；若 grammar 可加载但当前没有结构 query，则至少保留 Module 级节点并在输出中标注 `module-only coverage`。当前已接入的常见语言包括 Python/JavaScript/TypeScript/TSX/Bash/Java/Go/Rust/C#/C/C++/Kotlin/Ruby/Swift/Scala/PHP/Lua/Elixir/GDScript/Dart/Haskell/Clojure/SQL/Proto/Solidity/Vue/Svelte/R/Perl。
 
-**仓库本地语言扩展接口**：若目标仓库存在 `.nexus-mapper/language-overrides.json`，或显式通过 `--language-config` 提供 JSON 配置，则必须把它视为正式输入。后续 agent 可通过该文件：
-- 新增/覆盖扩展名 → tree-sitter 语言名映射
-- 为任意语言补充 `struct` / `imports` query
-- 显式声明某些扩展名当前仍属于 `unsupported`
+**不支持的语言扩展**：若仓库含有内置未支持的语言文件，agent 可通过命令行参数动态赋予支持：
+- `--add-extension .templ=templ` 添加新文件扩展名映射（可重复）
+- `--add-query templ struct "(component_declaration ...)"` 为某语言添加结构查询（可重复）
 
-所有通过该接口新增的语言，必须继续遵守同一套覆盖诚实度规则：`structural` / `module-only` / `configured-but-unavailable` / `unsupported`，不得对自定义语言放宽标准。
+查询参数格式：`--add-query <LANG> <TYPE> <QUERY_STRING>` 其中 `<TYPE>` 为 `struct` 或 `imports`。
+
+高级用法：若配置复杂，可用 `--language-config <JSON_FILE>` 显式指定一个 JSON 配置文件，格式同前，允许扩展名映射、自定义查询和显式标记不支持的语言。
+
+如果当前任务涉及“补一个暂未适配的语言”或“为某种非标准扩展名补 Tree-sitter 支持”，应继续读取 `references/05-language-customization.md`。该文件不是阶段门控文件，而是命令行扩展与可选 JSON 配置的专项操作说明。
 
 ---
 
@@ -104,6 +107,22 @@ repo_path: 目标仓库的本地绝对路径（必填）
 如果 PROFILE 阶段发现已知但未支持的语言文件，`provenance` 必须明确写出哪些部分属于人工推断或降级分析。
 如果 PROFILE 阶段发现 `module-only coverage`，也必须写清楚：这些语言已被计入 AST 文件覆盖，但没有类/函数级结构保证。
 如果 PROFILE 阶段发现某个通过覆盖配置声明的语言仍然无法加载 parser，也必须写清楚：这是 `configured-but-unavailable`，不能伪装成已覆盖。
+
+---
+
+## 🧠 持久指令
+
+为避免新会话忘记读取既有知识库，请把下面这段精炼规则写入宿主工具的持久指令文件，例如 `AGENTS.md`、`CLAUDE.md` 或同类记忆文件：
+
+```md
+如果仓库中存在 .nexus-map/INDEX.md，开始任务前优先阅读它恢复项目上下文。
+
+当一次任务改变了项目的结构认知时，应在交付前评估是否同步更新 .nexus-map。结构认知包括：系统边界、入口、依赖关系、测试面、语言支持、路线图或阶段性进度事实。纯局部实现细节默认不更新。
+
+不要把 .nexus-map 视为静态文档；它是项目记忆的一部分。新对话优先读取，重要变更后按需同步。
+```
+
+这是一条 **建议写入宿主持久记忆** 的规则，目的是让 agent 在真正需要时自然想起读取或更新 `.nexus-map`。
 
 ---
 
@@ -259,17 +278,20 @@ SKILL_DIR=".agent/skills/nexus-mapper"
 # 场景 B: 独立 repo（开发/调试时）
 SKILL_DIR="/path/to/nexus-mapper"
 
-# PROFILE 阶段调用
+# PROFILE 阶段调用 — 基础用法
 python $SKILL_DIR/scripts/extract_ast.py <repo_path> [--max-nodes 500] \
   > <repo_path>/.nexus-map/raw/ast_nodes.json
 
-# 如仓库提供自定义语言扩展配置，可显式传入
+# 若仓库包含非标准语言，可通过命令行参数添加支持
 python $SKILL_DIR/scripts/extract_ast.py <repo_path> [--max-nodes 500] \
-  [--language-config <repo_path>/.nexus-mapper/language-overrides.json] \
+  --add-extension .templ=templ \
+  --add-query templ struct "(component_declaration name: (identifier) @class.name) @class.def" \
   > <repo_path>/.nexus-map/raw/ast_nodes.json
 
-python $SKILL_DIR/scripts/git_detective.py <repo_path> --days 90 \
-  > <repo_path>/.nexus-map/raw/git_stats.json
+# 若配置复杂，用 JSON 文件（格式参见 --language-config 说明）
+python $SKILL_DIR/scripts/extract_ast.py <repo_path> [--max-nodes 500] \
+  --language-config /custom/path/to/language-config.json \
+  > <repo_path>/.nexus-map/raw/ast_nodes.json
 ```
 
 **依赖安装（首次使用）**：
