@@ -57,6 +57,42 @@
 > **不支持的语言** 在 `ast_nodes.json` 中表现为 `nodes: []`（空列表）。这是正常降级行为，
 > PROFILE 完成检查只要求 `ast_nodes.json` 文件非空，空节点列表视为合法。
 
+### 已知但未接入 AST 的语言
+
+- 现象：仓库中存在当前脚本不会解析的文件类型
+- 处理：继续执行，不中止；但必须在 `ast_nodes.json.stats.known_unsupported_file_counts` 中显式暴露
+- EMIT 要求：
+  - `INDEX.md` 标注本次语言覆盖降级
+  - `dependencies.md` 中相关区域加 `inferred` 或 `manual inspection` 说明
+  - `concept_model.json` 中受影响节点优先使用 `implementation_status=inferred`
+
+### grammar 可加载但只有 Module 级覆盖的语言
+
+- 现象：文件进入 `ast_nodes.json`，但 `stats.module_only_file_counts` 记录了该语言
+- 处理：继续执行，不中止
+- EMIT 要求：
+  - 不得把这部分语言描述为“完整 AST 结构覆盖”
+  - `systems.md` 和 `dependencies.md` 里涉及该语言的细粒度结构结论要保守表述
+  - 允许产出 Module 级边界，但类/函数级结论需补充 provenance 说明
+
+  ### 仓库本地覆盖配置声明了语言，但当前环境没有可用 parser
+
+  - 现象：仓库存在 `.nexus-mapper/language-overrides.json`，其中把某些扩展名映射到 tree-sitter 语言名，但 `ast_nodes.json.stats.configured_but_unavailable_file_counts` 非空
+  - 处理：继续执行，不中止；但必须把这部分视为 **未覆盖**，而不是 `module-only`
+  - EMIT 要求：
+    - `INDEX.md` 和 `systems.md` 说明本次确实加载了 repo 本地覆盖配置，但对应 parser 在当前环境不可用
+    - `dependencies.md` 中涉及该语言的结论只能写成 `manual inspection` 或 `inferred`
+    - 如果后续 agent 要补齐支持，应优先修正 parser 名称或环境，而不是伪造 query 结果
+
+  ### 仓库本地覆盖配置补充了语言 query
+
+  - 现象：仓库存在 `.nexus-mapper/language-overrides.json`，且 `ast_nodes.json.stats.languages_with_custom_queries` 非空
+  - 处理：继续执行，不中止；这属于正式能力，不应当被视为“实验性旁路”
+  - EMIT 要求：
+    - 对自定义 query 覆盖的语言保持与内建语言同等标准
+    - 若 query 能提取类/函数，就按 `structural coverage` 对待
+    - 若 query 为空或只补了扩展名映射，就按 `module-only` 或 `configured-but-unavailable` 诚实落地
+
 ---
 
 ## §5 特殊目录结构
@@ -68,6 +104,11 @@
 ### 目录过深嵌套
 - Python 文件超过 8 层嵌套：AST 解析正常工作，不受目录层级影响
 - `file_tree.txt` 行数 > 500 时：REASON 阶段仅读取前 300 行感知结构
+
+### 带有路线图 / Sprint 状态的仓库
+- 现象：README、ROADMAP、TASKS 等文档包含 `Sprint 1/2/3`、`in progress`、`next` 之类的时间敏感状态
+- 处理：允许摘要，但必须附 `verified_at` 和源文档路径
+- 禁止：把无日期的进度状态写成当前事实
 
 ---
 

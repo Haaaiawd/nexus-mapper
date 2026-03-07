@@ -19,12 +19,18 @@ EXCLUDE_DIRS = {'.git', '__pycache__', '.venv', 'venv', 'node_modules',
                 '.nexus-map', '.tox', '.eggs', 'target', 'cmake-build-debug',
                 '.vs', 'out', '_build', 'vendor'}
 
+# 已知会出现在代码仓库中、但当前脚本不会解析 AST 的语言。
+# 它们必须在输出中显式暴露，避免调用方误以为“未出现 == 已覆盖”。
+BUILTIN_KNOWN_UNSUPPORTED_EXTENSIONS: dict[str, str] = {
+}
+
 # 文件扩展名 → tree-sitter-language-pack 语言名
-EXTENSION_MAP: dict[str, str] = {
+BUILTIN_EXTENSION_MAP: dict[str, str] = {
     '.py': 'python', '.pyw': 'python', '.pyi': 'python',
     '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
     '.ts': 'typescript', '.mts': 'typescript',
     '.tsx': 'tsx',
+    '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash',
     '.java': 'java',
     '.go': 'go',
     '.rs': 'rust',
@@ -38,12 +44,23 @@ EXTENSION_MAP: dict[str, str] = {
     '.swift': 'swift',
     '.scala': 'scala', '.sc': 'scala',
     '.ex': 'elixir', '.exs': 'elixir',
+    '.gd': 'gdscript',
+    '.dart': 'dart',
+    '.hs': 'haskell',
+    '.clj': 'clojure', '.cljs': 'clojure', '.cljc': 'clojure',
+    '.sql': 'sql',
+    '.proto': 'proto',
+    '.sol': 'solidity',
+    '.vue': 'vue',
+    '.svelte': 'svelte',
+    '.r': 'r',
+    '.pl': 'perl', '.pm': 'perl',
 }
 
 # 每语言的 Tree-sitter Query：结构（类/函数）+ 导入
 # struct captures: class.def/class.name, func.def/func.name
 # imports captures: mod
-LANG_QUERIES: dict[str, dict[str, str]] = {
+BUILTIN_LANG_QUERIES: dict[str, dict[str, str]] = {
     'python': {
         'struct': """
             (class_definition name: (identifier) @class.name) @class.def
@@ -211,16 +228,180 @@ LANG_QUERIES: dict[str, dict[str, str]] = {
         """,
         'imports': '',
     },
+    'gdscript': {
+        'struct': """
+            (class_name_statement name: (name) @class.name) @class.def
+            (function_definition name: (name) @func.name) @func.def
+        """,
+        'imports': '',
+    },
 }
 
+DEFAULT_LANGUAGE_CONFIG_PATHS = (
+    '.nexus-mapper/language-overrides.json',
+)
 
-def _load_languages(requested: Optional[list[str]] = None) -> dict[str, Any]:
+
+def _normalize_extension(ext: str) -> str:
+    normalized = ext.strip().lower()
+    if not normalized:
+        raise ValueError('extension must not be empty')
+    if not normalized.startswith('.'):
+        normalized = f'.{normalized}'
+    return normalized
+
+
+def _copy_lang_queries(source: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    return {
+        lang: {
+            'struct': query_parts.get('struct', ''),
+            'imports': query_parts.get('imports', ''),
+        }
+        for lang, query_parts in source.items()
+    }
+
+
+def _load_language_customizations(
+    repo_path: Path,
+    explicit_config_path: Optional[str],
+) -> tuple[
+    dict[str, str],
+    dict[str, dict[str, str]],
+    dict[str, str],
+    list[str],
+    list[str],
+    dict[str, str],
+]:
+    """加载 repo 本地语言覆盖配置。
+
+    配置文件为 JSON，允许 future agents 在不修改核心脚本的前提下：
+    - 新增/覆盖扩展名 -> tree-sitter 语言名
+    - 为语言新增/覆盖 struct/imports query
+    - 显式声明当前仍不支持的扩展名
+    """
+    extension_map = dict(BUILTIN_EXTENSION_MAP)
+    lang_queries = _copy_lang_queries(BUILTIN_LANG_QUERIES)
+    known_unsupported_extensions = dict(BUILTIN_KNOWN_UNSUPPORTED_EXTENSIONS)
+    warnings: list[str] = []
+    loaded_config_paths: list[str] = []
+    custom_query_languages: dict[str, str] = {}
+
+    candidate_paths: list[Path] = []
+    if explicit_config_path:
+        candidate_paths.append(Path(explicit_config_path))
+    else:
+        for relative_path in DEFAULT_LANGUAGE_CONFIG_PATHS:
+            candidate = repo_path / relative_path
+            if candidate.exists():
+                candidate_paths.append(candidate)
+
+    for config_path in candidate_paths:
+        resolved_path = config_path if config_path.is_absolute() else (repo_path / config_path)
+        try:
+            config_data = json.loads(resolved_path.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            warnings.append(f'language config not found: {resolved_path}')
+            continue
+        except json.JSONDecodeError as exc:
+            warnings.append(f'language config parse error in {resolved_path}: {exc}')
+            continue
+        except OSError as exc:
+            warnings.append(f'language config read error in {resolved_path}: {exc}')
+            continue
+
+        if not isinstance(config_data, dict):
+            warnings.append(f'language config ignored because root value is not an object: {resolved_path}')
+            continue
+
+        loaded_config_paths.append(str(resolved_path))
+
+        extensions = config_data.get('extensions', {})
+        if extensions is not None and not isinstance(extensions, dict):
+            warnings.append(f'language config field "extensions" must be an object: {resolved_path}')
+            extensions = {}
+        for raw_ext, raw_lang in extensions.items():
+            if not isinstance(raw_ext, str) or not isinstance(raw_lang, str) or not raw_lang.strip():
+                warnings.append(
+                    f'ignored invalid extension mapping in {resolved_path}: {raw_ext!r} -> {raw_lang!r}'
+                )
+                continue
+            ext = _normalize_extension(raw_ext)
+            lang = raw_lang.strip().lower()
+            extension_map[ext] = lang
+            known_unsupported_extensions.pop(ext, None)
+
+        queries = config_data.get('queries', {})
+        if queries is not None and not isinstance(queries, dict):
+            warnings.append(f'language config field "queries" must be an object: {resolved_path}')
+            queries = {}
+        for raw_lang, raw_query_parts in queries.items():
+            if not isinstance(raw_lang, str) or not raw_lang.strip():
+                warnings.append(f'ignored invalid query language key in {resolved_path}: {raw_lang!r}')
+                continue
+            if not isinstance(raw_query_parts, dict):
+                warnings.append(
+                    f'ignored invalid query config in {resolved_path}: {raw_lang!r} must map to an object'
+                )
+                continue
+
+            lang = raw_lang.strip().lower()
+            struct_query = raw_query_parts.get('struct', '')
+            imports_query = raw_query_parts.get('imports', '')
+            if struct_query is None:
+                struct_query = ''
+            if imports_query is None:
+                imports_query = ''
+            if not isinstance(struct_query, str) or not isinstance(imports_query, str):
+                warnings.append(
+                    f'ignored invalid query strings in {resolved_path}: {raw_lang!r}'
+                )
+                continue
+
+            lang_queries[lang] = {
+                'struct': struct_query,
+                'imports': imports_query,
+            }
+            custom_query_languages[lang] = str(resolved_path)
+
+        unsupported_extensions = config_data.get('unsupported_extensions', {})
+        if unsupported_extensions is not None and not isinstance(unsupported_extensions, dict):
+            warnings.append(
+                f'language config field "unsupported_extensions" must be an object: {resolved_path}'
+            )
+            unsupported_extensions = {}
+        for raw_ext, raw_lang in unsupported_extensions.items():
+            if not isinstance(raw_ext, str) or not isinstance(raw_lang, str) or not raw_lang.strip():
+                warnings.append(
+                    f'ignored invalid unsupported extension mapping in {resolved_path}: {raw_ext!r} -> {raw_lang!r}'
+                )
+                continue
+            ext = _normalize_extension(raw_ext)
+            lang = raw_lang.strip().lower()
+            known_unsupported_extensions[ext] = lang
+            extension_map.pop(ext, None)
+
+    return (
+        extension_map,
+        lang_queries,
+        known_unsupported_extensions,
+        warnings,
+        loaded_config_paths,
+        custom_query_languages,
+    )
+
+
+def _load_languages(
+    extension_map: dict[str, str],
+    lang_queries: dict[str, dict[str, str]],
+    requested: Optional[list[str]] = None,
+) -> dict[str, Any]:
     """
     加载 Tree-sitter 语言对象，返回 {lang_name: Language} 字典。
     优先使用 tree-sitter-language-pack（160+ 语言），不可用时回退单语言包。
     """
     try:
         from tree_sitter_language_pack import get_language as _get
+
         def get_language(name: str) -> Any:
             return _get(name)
     except ImportError:
@@ -228,6 +409,7 @@ def _load_languages(requested: Optional[list[str]] = None) -> dict[str, Any]:
         try:
             import tree_sitter_python
             from tree_sitter import Language
+
             def get_language(name: str) -> Any:
                 if name == 'python':
                     return Language(tree_sitter_python.language())
@@ -239,11 +421,9 @@ def _load_languages(requested: Optional[list[str]] = None) -> dict[str, Any]:
             )
             sys.exit(1)
 
-    targets = requested if requested else list(LANG_QUERIES.keys())
+    targets = requested if requested else sorted(set(extension_map.values()) | set(lang_queries.keys()))
     languages: dict[str, Any] = {}
     for name in targets:
-        if name not in LANG_QUERIES:
-            continue
         try:
             languages[name] = get_language(name)
         except (LookupError, KeyError):
@@ -278,6 +458,7 @@ def extract_file(
     file_path: Path,
     lang_name: str,
     language: Any,
+    lang_queries: dict[str, dict[str, str]],
 ) -> tuple[list[dict], list[dict], list[str]]:
     """解析单个源文件，返回 (nodes, edges, errors)"""
     from tree_sitter import Parser as TSParser, Query, QueryCursor
@@ -313,7 +494,7 @@ def extract_file(
         'lang': lang_name,
     })
 
-    queries = LANG_QUERIES.get(lang_name, {})
+    queries = lang_queries.get(lang_name, {})
 
     # ── 结构：类 / 函数 ──────────────────────────────────────────
     struct_q_text = queries.get('struct', '')
@@ -387,20 +568,55 @@ def extract_file(
     return nodes, edges, errors
 
 
-def collect_source_files(repo_path: Path, languages: dict[str, Any]) -> list[tuple[Path, str]]:
+def collect_source_files(
+    repo_path: Path,
+    languages: dict[str, Any],
+    extension_map: dict[str, str],
+    known_unsupported_extensions: dict[str, str],
+) -> tuple[list[tuple[Path, str]], dict[str, int], dict[str, int], dict[str, int]]:
     """收集 repo 中所有已知语言的源文件，跳过排除目录。
-    返回 [(file_path, lang_name)] 列表。
+
+    返回：
+    - [(file_path, lang_name)]
+    - supported_file_counts: {lang_name: file_count}
+    - known_unsupported_file_counts: {lang_name: file_count}
+    - configured_but_unavailable_file_counts: {lang_name: file_count}
     """
     files: list[tuple[Path, str]] = []
+    supported_file_counts: dict[str, int] = {}
+    known_unsupported_file_counts: dict[str, int] = {}
+    configured_but_unavailable_file_counts: dict[str, int] = {}
+
     for p in repo_path.rglob('*'):
         if not p.is_file():
             continue
         if any(part in EXCLUDE_DIRS for part in p.parts):
             continue
-        lang = EXTENSION_MAP.get(p.suffix.lower())
-        if lang and lang in languages:
-            files.append((p, lang))
-    return sorted(files, key=lambda x: x[0])
+
+        suffix = p.suffix.lower()
+        lang = extension_map.get(suffix)
+        if lang:
+            if lang in languages:
+                files.append((p, lang))
+                supported_file_counts[lang] = supported_file_counts.get(lang, 0) + 1
+            else:
+                configured_but_unavailable_file_counts[lang] = (
+                    configured_but_unavailable_file_counts.get(lang, 0) + 1
+                )
+            continue
+
+        unsupported_lang = known_unsupported_extensions.get(suffix)
+        if unsupported_lang:
+            known_unsupported_file_counts[unsupported_lang] = (
+                known_unsupported_file_counts.get(unsupported_lang, 0) + 1
+            )
+
+    return (
+        sorted(files, key=lambda x: x[0]),
+        supported_file_counts,
+        known_unsupported_file_counts,
+        configured_but_unavailable_file_counts,
+    )
 
 
 
@@ -443,6 +659,10 @@ def main() -> None:
     parser.add_argument('repo_path', help='Target repository path')
     parser.add_argument('--max-nodes', type=int, default=500,
                         help='Max nodes in output (default: 500). Truncates Function nodes first.')
+    parser.add_argument(
+        '--language-config',
+        help='Optional JSON file that adds or overrides extension mappings and tree-sitter queries',
+    )
     args = parser.parse_args()
 
     repo_path = Path(args.repo_path).resolve()
@@ -452,8 +672,27 @@ def main() -> None:
     if not (repo_path / '.git').exists():
         sys.stderr.write(f"[WARNING] .git not found in {repo_path}, may not be a git repo\n")
 
-    languages = _load_languages()
-    source_files = collect_source_files(repo_path, languages)
+    (
+        extension_map,
+        lang_queries,
+        known_unsupported_extensions,
+        config_warnings,
+        loaded_config_paths,
+        custom_query_languages,
+    ) = _load_language_customizations(repo_path, args.language_config)
+
+    languages = _load_languages(extension_map, lang_queries)
+    (
+        source_files,
+        supported_file_counts,
+        known_unsupported_file_counts,
+        configured_but_unavailable_file_counts,
+    ) = collect_source_files(
+        repo_path,
+        languages,
+        extension_map,
+        known_unsupported_extensions,
+    )
 
     if not source_files:
         sys.stderr.write(f"[WARNING] No supported source files found in {repo_path}\n")
@@ -463,12 +702,26 @@ def main() -> None:
     all_errors: list[str] = []
     detected_langs: set[str] = set()
     total_lines = 0
+    warnings: list[str] = list(config_warnings)
+    module_only_file_counts: dict[str, int] = {}
+    languages_with_structural_queries = sorted(
+        lang for lang, query_parts in lang_queries.items()
+        if query_parts.get('struct', '').strip()
+    )
 
     for file_path, lang_name in source_files:
-        nodes, edges, errors = extract_file(repo_path, file_path, lang_name, languages[lang_name])
+        nodes, edges, errors = extract_file(
+            repo_path,
+            file_path,
+            lang_name,
+            languages[lang_name],
+            lang_queries,
+        )
         all_nodes.extend(nodes)
         all_edges.extend(edges)
         all_errors.extend(errors)
+        if lang_name not in languages_with_structural_queries:
+            module_only_file_counts[lang_name] = module_only_file_counts.get(lang_name, 0) + 1
         if nodes:
             detected_langs.add(lang_name)
             total_lines += nodes[0].get('lines', 0)
@@ -476,6 +729,40 @@ def main() -> None:
     final_nodes, final_edges, truncated, truncated_count = apply_max_nodes(
         all_nodes, all_edges, args.max_nodes
     )
+
+    if known_unsupported_file_counts:
+        unsupported_summary = ', '.join(
+            f"{lang} ({count} files)"
+            for lang, count in sorted(known_unsupported_file_counts.items())
+        )
+        warnings.append(
+            "known unsupported languages present; downstream outputs must mark inferred sections explicitly: "
+            f"{unsupported_summary}"
+        )
+
+    if configured_but_unavailable_file_counts:
+        unavailable_summary = ', '.join(
+            f"{lang} ({count} files)"
+            for lang, count in sorted(configured_but_unavailable_file_counts.items())
+        )
+        warnings.append(
+            'some configured languages were detected in source files but no parser could be loaded: '
+            f'{unavailable_summary}'
+        )
+
+    if module_only_file_counts:
+        module_only_summary = ', '.join(
+            f"{lang} ({count} files)"
+            for lang, count in sorted(module_only_file_counts.items())
+        )
+        warnings.append(
+            "some languages were parsed with module-only coverage because no structural query template is bundled: "
+            f"{module_only_summary}"
+        )
+
+    if loaded_config_paths:
+        config_summary = ', '.join(loaded_config_paths)
+        warnings.append(f'custom language configuration loaded: {config_summary}')
 
     result = {
         'languages': sorted(detected_langs),
@@ -485,6 +772,13 @@ def main() -> None:
             'parse_errors': len(all_errors),
             'truncated': truncated,
             'truncated_nodes': truncated_count,
+            'supported_file_counts': supported_file_counts,
+            'languages_with_structural_queries': languages_with_structural_queries,
+            'languages_with_custom_queries': sorted(custom_query_languages.keys()),
+            'module_only_file_counts': module_only_file_counts,
+            'known_unsupported_file_counts': known_unsupported_file_counts,
+            'configured_but_unavailable_file_counts': configured_but_unavailable_file_counts,
+            'custom_language_config_paths': loaded_config_paths,
         },
         'nodes': final_nodes,
         'edges': final_edges,
@@ -492,6 +786,8 @@ def main() -> None:
 
     if all_errors:
         result['_errors'] = all_errors[:20]
+    if warnings:
+        result['warnings'] = warnings
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

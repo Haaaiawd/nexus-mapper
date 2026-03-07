@@ -26,7 +26,8 @@ The mapper challenges its own first-pass hypothesis before it writes final asset
 ├── INDEX.md              ← Load this first. Full architectural context, under 2000 tokens.
 ├── arch/
 │   ├── systems.md        ← Every subsystem: what it owns, exactly where it sits in the repo.
-│   └── dependencies.md   ← How components connect. Rendered as a Mermaid dependency graph.
+│   ├── dependencies.md   ← How components connect. Rendered as a Mermaid dependency graph.
+│   └── test_coverage.md  ← Static test surface: what is tested, what is not, and where evidence is thin.
 ├── concepts/
 │   ├── concept_model.json ← Machine-readable knowledge graph. Structured for programmatic use.
 │   └── domains.md        ← The domain language this codebase speaks, in plain terms.
@@ -37,6 +38,10 @@ The mapper challenges its own first-pass hypothesis before it writes final asset
 ```
 
 `INDEX.md` is the entry point. It is intentionally small — an AI can load it in full without truncation, and then navigate to deeper files as needed.
+
+Every generated Markdown file carries a small provenance header with `verified_at` and downgrade notes. If the repository contains known-but-unsupported languages, or languages that only have module-level AST coverage, nexus-mapper must say so explicitly instead of overstating parser confidence.
+
+If a repository needs extra language support, it can add `.nexus-mapper/language-overrides.json`. That file lets future agents extend extension mappings and Tree-sitter queries without editing the core extractor.
 
 ---
 
@@ -88,9 +93,35 @@ That's the full context, compressed and ready.
 
 Parses 17+ languages automatically by file extension.
 
-Python · JavaScript · JSX · TypeScript · TSX · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir
+Python · JavaScript · JSX · TypeScript · TSX · Bash · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir · GDScript · Dart · Haskell · Clojure · SQL · Proto · Solidity · Vue · Svelte · R · Perl
+
+Not every listed language has the same depth. Some are full structural parses, some are currently module-only, and some may be configured in-repo but still unavailable if no parser can be loaded. The output metadata tells you which is which.
 
 Unknown extensions are skipped silently. Mixed-language repositories work without any configuration.
+
+### Repo-local language overrides
+
+If built-in coverage is not enough, add `.nexus-mapper/language-overrides.json` in the target repository:
+
+```json
+{
+  "extensions": {
+    ".templ": "templ",
+    ".gd": "gdscript"
+  },
+  "queries": {
+    "templ": {
+      "struct": "(component_declaration name: (identifier) @class.name) @class.def",
+      "imports": ""
+    }
+  },
+  "unsupported_extensions": {
+    ".legacydsl": "legacydsl"
+  }
+}
+```
+
+This keeps every language on the same contract: structural coverage if a parser and query exist, module-only if only the parser is available, configured-but-unavailable if the repo asked for a language but the environment cannot load it, unsupported if it is explicitly marked as such.
 
 ---
 

@@ -17,8 +17,21 @@
     "total_lines": 23184,
     "parse_errors": 0,
     "truncated": true,
-    "truncated_nodes": 298
+    "truncated_nodes": 298,
+    "supported_file_counts": {"python": 101},
+    "languages_with_structural_queries": ["python", "javascript", "typescript"],
+    "languages_with_custom_queries": ["gdscript"],
+    "module_only_file_counts": {"vue": 12},
+    "known_unsupported_file_counts": {"customdsl": 24},
+    "configured_but_unavailable_file_counts": {"templ": 6},
+    "custom_language_config_paths": ["/repo/.nexus-mapper/language-overrides.json"]
   },
+  "warnings": [
+    "custom language configuration loaded: /repo/.nexus-mapper/language-overrides.json",
+    "some languages were parsed with module-only coverage because no structural query template is bundled: vue (12 files)",
+    "known unsupported languages present; downstream outputs must mark inferred sections explicitly: customdsl (24 files)",
+    "some configured languages were detected in source files but no parser could be loaded: templ (6 files)"
+  ],
   "nodes": [...],
   "edges": [...]
 }
@@ -60,6 +73,26 @@
 
 **Edge 类型**：`contains`（模块→类，类→方法）/ `imports`（import 语句解析）
 
+### 可选 warnings
+
+`warnings` 是可选数组，用来暴露不会导致 PROFILE 失败、但会影响下游可信度的降级信息，例如：
+- grammar 可加载，但当前仅有 Module 级覆盖
+- 已知但未支持的语言存在
+- AST 被截断
+- 部分解析器不可用
+
+### 覆盖分层字段
+
+| 字段 | 含义 |
+|------|------|
+| `supported_file_counts` | 成功进入 AST 流程的文件数（包含完整结构覆盖和 module-only 覆盖） |
+| `languages_with_structural_queries` | 当前 bundled query 模板覆盖到的语言 |
+| `languages_with_custom_queries` | 通过 repo 本地覆盖配置新增或覆盖 query 的语言 |
+| `module_only_file_counts` | grammar 可加载，但当前没有结构 query，只产出 Module 节点的语言 |
+| `known_unsupported_file_counts` | 已知存在但完全未进入 AST 流程的语言 |
+| `configured_but_unavailable_file_counts` | 仓库配置声明了该语言，但当前环境没有可用 parser，因此未进入 AST 流程 |
+| `custom_language_config_paths` | 本次实际加载的 repo 本地语言覆盖配置路径 |
+
 ---
 
 ## raw/git_stats.json（git_detective.py 产出）
@@ -84,6 +117,30 @@
 
 ---
 
+## 生成的 Markdown 文件头部
+
+`INDEX.md`、`arch/*.md`、`concepts/domains.md`、`hotspots/git_forensics.md` 的头部至少包含：
+
+```markdown
+> generated_by: nexus-mapper v2
+> verified_at: 2026-03-07
+> provenance: AST-backed except where explicitly marked inferred
+```
+
+如存在语言降级或人工推断，`provenance` 必须扩展说明，例如：
+
+```markdown
+> provenance: AST-backed for Python; some custom DSL files were detected but not parsed by bundled AST tooling, so the affected dependency notes below are inferred from file tree and manual inspection.
+```
+
+若存在 repo 本地语言覆盖配置，也建议补充一句其状态，例如：
+
+```markdown
+> provenance: Custom language overrides were loaded from .nexus-mapper/language-overrides.json; files mapped to templ remain configured-but-unavailable in this environment because no parser could be loaded.
+```
+
+---
+
 ## concepts/concept_model.json — Schema V1（EMIT 产出）
 
 ```json
@@ -98,7 +155,10 @@
       "type": "System",
       "label": "AST Extractor",
       "responsibility": "使用 Tree-sitter 解析 Python 仓库，提取模块/类/函数节点及 import 关系，输出机器可读 JSON",
+      "implementation_status": "implemented",
       "code_path": "src/nexus/application/weaving/",
+      "evidence_path": null,
+      "evidence_gap": null,
       "tech_stack": ["tree-sitter", "python"],
       "related_reqs": ["REQ-101"],
       "complexity": "medium",
@@ -131,7 +191,45 @@
 | `type` | ✅ | 不在枚举 `System / Domain / Module / Class / Function` 中 |
 | `label` | ✅ | 空字符串 |
 | `responsibility` | ✅ | 空泛到无法验证；字数 < 10 或 > 120 |
-| `code_path` | ✅ | 路径在 repo 中不实际存在（必须亲手验证，见 SKILL.md 守则2）|
+| `implementation_status` | ✅ | 不在枚举 `implemented / planned / inferred` 中 |
+| `code_path` | 条件必需 | `implementation_status=implemented` 但为空；或路径在 repo 中不实际存在 |
+| `evidence_path` | 条件必需 | `implementation_status=planned/inferred` 但为空；或路径在 repo 中不实际存在 |
+| `evidence_gap` | 条件必需 | `implementation_status=planned/inferred` 但为空；或未明确说明缺失的是哪类证据 |
+
+### 节点状态表达规范
+
+**已实现节点**
+
+```json
+{
+  "implementation_status": "implemented",
+  "code_path": "src/server/",
+  "evidence_path": null,
+  "evidence_gap": null
+}
+```
+
+**计划中节点**
+
+```json
+{
+  "implementation_status": "planned",
+  "code_path": null,
+  "evidence_path": "docs/architecture.md",
+  "evidence_gap": "设计文档提到 Monarch/Executor，但仓库中未发现 src/agents/monarch/"
+}
+```
+
+**推断节点**
+
+```json
+{
+  "implementation_status": "inferred",
+  "code_path": null,
+  "evidence_path": "docs/architecture.md",
+  "evidence_gap": "仓库包含当前未支持的 DSL 文件；此边界来自文件树与人工阅读"
+}
+```
 
 ---
 

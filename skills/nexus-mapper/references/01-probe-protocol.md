@@ -20,6 +20,11 @@
 python $SKILL_DIR/scripts/extract_ast.py $repo_path [--max-nodes 500] \
   > $repo_path/.nexus-map/raw/ast_nodes.json
 
+# 若仓库包含自定义语言覆盖配置，也可显式传入
+python $SKILL_DIR/scripts/extract_ast.py $repo_path [--max-nodes 500] \
+  [--language-config $repo_path/.nexus-mapper/language-overrides.json] \
+  > $repo_path/.nexus-map/raw/ast_nodes.json
+
 # 步骤 2: 运行 git 热点分析（仅在存在 .git 时）
 python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
   > $repo_path/.nexus-map/raw/git_stats.json
@@ -37,6 +42,9 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 - [ ] `raw/file_tree.txt` 非空
 - [ ] 若存在 git 历史：`raw/git_stats.json` 非空，包含 `hotspots` 字段
 - [ ] 若不存在 git 历史：已明确记录这是一次无 git 降级探测
+- [ ] 若 `ast_nodes.json.stats.known_unsupported_file_counts` 非空：已记录本次语言覆盖降级，后续输出必须显式标注 provenance
+- [ ] 若 `ast_nodes.json.stats.module_only_file_counts` 非空：已记录哪些语言只有 Module 级覆盖，后续输出不得把这些语言描述为完整结构 AST 覆盖
+- [ ] 若 `ast_nodes.json.stats.configured_but_unavailable_file_counts` 非空：已记录哪些语言虽然通过 repo 本地配置声明，但当前环境没有可用 parser，后续输出必须把这部分视为未覆盖
 
 ---
 
@@ -55,6 +63,7 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 3. 主入口文件（`main.py`, `index.ts`, `Application.java`）
 4. `raw/file_tree.txt` — 目录结构感知
 5. `raw/git_stats.json` hotspots Top 5 — 最活跃文件（仅在 git 数据可用时）
+6. `tests/`, `test/`, `spec/` 等测试目录 — 建立静态测试面，不需要运行测试
 
 **执行要求**
 - 进行深度思考，逐步推演足够支撑结论的关键决策点，通常为 3-5 个
@@ -63,8 +72,8 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 **记录格式**（工作记忆，不写文件）
 ```
 [REASON LOG]
-- System A: 推断职责=X, code_path=Y （置信度: 高/中/低）
-- System B: 推断职责=X, code_path=Y （置信度: 高/中/低）
+- System A: 推断职责=X, implementation_status=implemented, code_path=Y （置信度: 高/中/低）
+- System B: 推断职责=X, implementation_status=planned, evidence_path=Y （置信度: 高/中/低）
 - Evidence gap: Z 目录归属缺少直接证据（将在 OBJECT 中质疑）
 ```
 
@@ -125,7 +134,9 @@ Q2: application/weaving/ 目录命名暗示「语义织入」，但其下
    - 质疑不成立 → 确认原假设，标记「验证通过」
 
 **全局节点校验（全部 System 节点逐一执行）**
-- [ ] 每个节点 `code_path` 在 repo 中实际存在（`ls` 或 `view_file` 确认）
+- [ ] `implemented` 节点的 `code_path` 在 repo 中实际存在（`ls` 或 `view_file` 确认）
+- [ ] `planned/inferred` 节点不伪造 `code_path`，改用 `evidence_path + evidence_gap`
+- [ ] 每个 `planned/inferred` 节点的 `evidence_path` 在 repo 中实际存在
 - [ ] `responsibility` 表意清晰、具体；若证据不足，明确记录 evidence gap
 - [ ] 节点 `id` 全局唯一，kebab-case，全部小写
 
@@ -156,11 +167,24 @@ Q2: application/weaving/ 目录命名暗示「语义织入」，但其下
 2. .nexus-map/.tmp/INDEX.md                       ← L0 摘要, < 2000 tokens
 3. .nexus-map/.tmp/arch/systems.md                ← 各 System 边界
 4. .nexus-map/.tmp/arch/dependencies.md           ← Mermaid 依赖图
-5. .nexus-map/.tmp/concepts/domains.md            ← Domain 概念说明
-6. .nexus-map/.tmp/hotspots/git_forensics.md      ← Git 热点摘要
+5. .nexus-map/.tmp/arch/test_coverage.md          ← 静态测试面与证据缺口
+6. .nexus-map/.tmp/concepts/domains.md            ← Domain 概念说明
+7. .nexus-map/.tmp/hotspots/git_forensics.md      ← Git 热点摘要
 ```
 
 全部写入成功 → 移动 `.tmp/` 内容到 `.nexus-map/` → 删除 `.tmp/`
+
+**每个 Markdown 文件的头部最少包含**
+```markdown
+> generated_by: nexus-mapper v2
+> verified_at: 2026-03-07
+> provenance: AST-backed except where explicitly marked inferred
+```
+
+若存在未支持语言或人工推断区域，`provenance` 行必须扩展说明：
+- 哪些语言未被 AST 覆盖
+- 哪些章节/图是人工推断
+- 任何进度快照的来源日期
 
 **edges 合并协议（写入 concept_model.json 前执行）**
 1. 导入 `raw/ast_nodes.json` 中的 edges（`imports`/`contains`，机器层精确）
@@ -169,5 +193,6 @@ Q2: application/weaving/ 目录命名暗示「语义织入」，但其下
 
 **完成自检**
 - [ ] `INDEX.md` 存在，结论具体且对证据缺口诚实，< 2000 tokens
-- [ ] `concept_model.json` 所有 System 节点有非空 `code_path`
+- [ ] `concept_model.json` 中 `implemented` 节点都有已验证 `code_path`，`planned/inferred` 节点不伪造路径
 - [ ] `arch/dependencies.md` 包含 ≥1 个 Mermaid 图
+- [ ] `arch/test_coverage.md` 说明了静态测试面，并明确未运行测试或未获取覆盖率的证据缺口

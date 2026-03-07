@@ -26,7 +26,8 @@
 ├── INDEX.md              ← 冷启动入口。完整架构上下文，控制在 2000 tokens 以内。
 ├── arch/
 │   ├── systems.md        ← 每个子系统的职责和代码位置。
-│   └── dependencies.md   ← 组件间的调用关系，Mermaid 依赖图。
+│   ├── dependencies.md   ← 组件间的调用关系，Mermaid 依赖图。
+│   └── test_coverage.md  ← 静态测试面：哪些核心模块有测试、哪些没有、哪里证据不足。
 ├── concepts/
 │   ├── concept_model.json ← 机器可读的知识图谱，供程序化使用。
 │   └── domains.md        ← 这个代码库使用的领域语言，人能读懂的版本。
@@ -37,6 +38,10 @@
 ```
 
 `INDEX.md` 是唯一的入口，刻意做得很小——AI 可以完整加载它，不会截断，需要深入时再按需读取其他文件。
+
+所有生成的 Markdown 文件都应带一个简短 provenance 头部，至少写明 `verified_at` 和降级说明。若仓库包含当前未支持的语言，或某些语言只有 Module 级 AST 覆盖，nexus-mapper 都必须显式说明，不能夸大解析可信度。
+
+如果仓库需要补充额外语言支持，可以添加 `.nexus-mapper/language-overrides.json`。后续 agent 通过这个文件就能扩展扩展名映射和 Tree-sitter query，而不必改核心提取器。
 
 ---
 
@@ -89,9 +94,35 @@ AI 完成分析后会在仓库根目录写入 `.nexus-map/`。下次打开这个
 
 按文件扩展名自动 dispatch，支持 17+ 语言：
 
-Python · JavaScript · JSX · TypeScript · TSX · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir
+Python · JavaScript · JSX · TypeScript · TSX · Bash · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir · GDScript · Dart · Haskell · Clojure · SQL · Proto · Solidity · Vue · Svelte · R · Perl
+
+这些语言的覆盖深度并不完全相同：有些是完整结构提取，有些当前只有 Module 级别，还有些虽然被仓库本地配置声明了，但当前环境无法加载 parser。最终输出里的 metadata 会诚实标出这一点。
 
 未知扩展名静默跳过。多语言混合仓库无需任何配置。
+
+### 仓库本地语言覆盖配置
+
+如果内建覆盖还不够，可以在目标仓库里添加 `.nexus-mapper/language-overrides.json`：
+
+```json
+{
+  "extensions": {
+    ".templ": "templ",
+    ".gd": "gdscript"
+  },
+  "queries": {
+    "templ": {
+      "struct": "(component_declaration name: (identifier) @class.name) @class.def",
+      "imports": ""
+    }
+  },
+  "unsupported_extensions": {
+    ".legacydsl": "legacydsl"
+  }
+}
+```
+
+这样所有语言都走同一套契约：有 parser 且有 query 就是 `structural coverage`，只有 parser 没有 query 就是 `module-only`，仓库要求支持但当前环境加载不到 parser 就是 `configured-but-unavailable`，明确标记不支持的仍然归为 `unsupported`。
 
 ---
 
