@@ -157,7 +157,9 @@ python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --summary
 为避免新会话忘记读取既有知识库，请把下面这段精炼规则写入宿主工具的持久指令文件，例如 `AGENTS.md`、`CLAUDE.md` 或同类记忆文件：
 
 ```md
-如果仓库中存在 .nexus-map/INDEX.md，开始任务前优先阅读它恢复项目上下文。
+如果仓库中存在 .nexus-map/INDEX.md，开始任务前必须先阅读它恢复全局上下文。
+
+如果任务需要判断局部结构、依赖关系、影响半径或边界归属，优先回读 nexus-mapper skill 的按需查询说明，并使用 query_graph.py 基于 .nexus-map/raw/ast_nodes.json 做验证；不要重新猜结构。
 
 当一次任务改变了项目的结构认知时，应在交付前评估是否同步更新 .nexus-map。结构认知包括：系统边界、入口、依赖关系、测试面、语言支持、路线图或阶段性进度事实。纯局部实现细节默认不更新。
 

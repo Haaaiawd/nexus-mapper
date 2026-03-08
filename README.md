@@ -90,7 +90,9 @@ That's the full context, compressed and ready.
 For the best long-term behavior, add a short persistent instruction to your host tool's memory file such as `AGENTS.md`, `CLAUDE.md`, or an equivalent file:
 
 ```md
-If .nexus-map/INDEX.md exists, read it before starting work to restore project context.
+If .nexus-map/INDEX.md exists, read it before starting work to restore global project context.
+
+If the task requires local structure, dependency, impact, or boundary validation, return to the nexus-mapper skill's on-demand query guidance and use query_graph.py against .nexus-map/raw/ast_nodes.json instead of guessing.
 
 When a task changes the project's structural understanding, assess whether .nexus-map should be updated before delivery. Structural understanding includes system boundaries, entrypoints, dependencies, test surface, language support, roadmap, and stage/progress facts. Pure local implementation details do not require a map update by default.
 
