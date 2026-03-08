@@ -1,6 +1,6 @@
 ---
 name: nexus-mapper
-description: Analyze a local repository and generate a persistent `.nexus-map/` knowledge base for future AI sessions. Use whenever the user asks to map a codebase, understand project architecture, build repo knowledge, create cold-start context, or assess change impact across an unfamiliar repository. Requires shell execution and local Python. Do not use for single-file questions, pure API environments, or tasks that only need a quick grep/read.
+description: "Generate a persistent .nexus-map/ knowledge base that lets any AI session instantly understand a codebase's architecture, systems, dependencies, and change hotspots. Use when starting work on an unfamiliar repository, onboarding with AI-assisted context, preparing for a major refactoring initiative, or enabling reliable cold-start AI sessions across a team. Produces INDEX.md, systems.md, concept_model.json, git_forensics.md and more. Requires shell execution and Python 3.10+. For ad-hoc file queries or instant impact analysis during active development, use nexus-query instead."
 ---
 
 # nexus-mapper — AI 项目探测协议
@@ -152,6 +152,8 @@ python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --summary
 
 > **定位**：`.nexus-map/` 是"地图"，`query_graph.py` 是"放大镜"。地图帮你定位大方向，放大镜帮你看清局部细节。
 
+> **五个查询模式的详细使用场景与实战案例**，见 `references/06-query-guide.md`。
+
 ---
 
 ## 🧠 持久指令
@@ -172,41 +174,17 @@ python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --summary
 
 ---
 
-## ⚡ PROBE 速查卡
-
-先看这张表，再按阶段回读对应 reference。这样保留硬门控，但不必每次在脑中重新拼装流程。
-
-| 阶段 | 先读什么 | 先跑什么 / 先做什么 | 通过标准 |
-|------|---------|--------------------|---------|
-| PROFILE | `references/01-probe-protocol.md` | `extract_ast.py`（可带 `--file-tree-out`）+ `git_detective.py` | `raw/ast_nodes.json`、`raw/file_tree.txt` 可用；git 数据按条件生成 |
-| REASON | `references/03-edge-cases.md` | 读 README / file_tree / 热点；必要时跑 `query_graph.py --hub-analysis` | 形成 1-5 个系统级假说，每个都有职责与状态 |
-| OBJECT | `references/04-object-framework.md` | 用 Structure / Evolution / Dependency 提 1-3 条高价值质疑 | 每条质疑都有证据线索和验证计划 |
-| BENCHMARK | 已加载协议即可 | 用 `view_file` / `grep_search` / `query_graph.py --impact` 验证 | `implemented` 路径已核实；`planned/inferred` 证据链完整 |
-| EMIT | `references/02-output-schema.md` | 先写 `.tmp/`，再整体落盘 | Schema 合法，Markdown 头部完整，`INDEX.md` 可冷启动 |
-
----
-
-## 🔄 PROBE 五阶段协议
+## 📋 PROBE 阶段硬门控
 
 > [!IMPORTANT]
-> **Reference 文件不是附录，而是阶段执行说明。** 进入对应阶段前先读对应 reference，
-> 是为了减少漏判边界场景、误写 schema 和跳过自我校验的概率。
-
-| 阶段 | 开始前必须读取（硬门控） | 核心动作 | 完成标志 |
-|------|------------------------|---------|--------|
-| **P**ROFILE | ⛔ `read_file references/01-probe-protocol.md` | 运行脚本，产出 `raw/` 核心输入 | `ast_nodes.json` 与 `file_tree.txt` 可用；git 数据按条件生成 |
-| **R**EASON | ⛔ `read_file references/03-edge-cases.md`（检查是否触发边界场景） | 阅读 README/热点/文件树，识别主要系统 | 每个系统有职责描述 + 初步 `implementation_status` |
-| **O**BJECT | ⛔ `read_file references/04-object-framework.md` | 按三维度提出最少一组高价值反驳点 | 每条质疑都有具体证据线索和验证计划 |
-| **B**ENCHMARK | （无额外文件，使用已加载的协议） | 逐一验证异议，修正错误节点 | `implemented` 节点的 `code_path` 已验证；`planned/inferred` 节点的证据链完整 |
-| **E**MIT | ⛔ `read_file references/02-output-schema.md`（校验 Schema 后才能写文件） | 原子写入全部 `.nexus-map/` 文件 | 全部文件通过 Schema 校验，并带验证日期与 provenance 头部 |
-
-**强制阅读顺序总览**（按触发时间排列，不得颠倒或跳过）：
+> **进入每个阶段前必须 `read_file` 对应 reference，不得跳过。**
+> 各阶段详细步骤、完成检查清单与边界场景处理均在 reference 中定义。
 
 ```
-[Skill 激活时]     → 读  01-probe-protocol.md   （阶段步骤蓝图）
-[REASON 前]        → 读  03-edge-cases.md        （确认是否命中边界场景）
-[OBJECT 前]        → 读  04-object-framework.md  （三维度质疑模板）
-[EMIT 前]          → 读  02-output-schema.md     （Schema 校验规范）
+[Skill 激活时]     → read_file references/01-probe-protocol.md  （阶段步骤蓝图）
+[REASON 前]        → read_file references/03-edge-cases.md       （边界场景检查）
+[OBJECT 前]        → read_file references/04-object-framework.md （三维度质疑模板）
+[EMIT 前]          → read_file references/02-output-schema.md    （Schema 校验规范）
 ```
 
 ---

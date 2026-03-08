@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="Icon.png" alt="nexus-mapper" width="96" height="96">
+  <img src="Icon.png" alt="nexus-skills" width="96" height="96">
 </p>
 
-<h1 align="center">nexus-mapper</h1>
+<h1 align="center">nexus-skills</h1>
 
 <p align="center">
-  先把仓库地图建出来。<br>
-  后续每个 AI 会话都从已验证的上下文开始。
+  为 AI Agent 生成可持续复用的代码仓库知识库，并提供精准的代码结构查询能力。<br>
+  Build a persistent knowledge map of any codebase. Query its structure with precision. Every AI session starts smarter.
 </p>
 
 <p align="center">
@@ -15,11 +15,22 @@
 
 ---
 
-## 它到底做什么
+## 两个技能，一种设计哲学
+
+| 技能 | 干什么 | 什么时候用 |
+|------|--------|-----------|
+| **nexus-mapper** | 全量分析代码仓库，写出持久化的 `.nexus-map/` 知识库供后续 AI 会话使用 | 接手陌生仓库、团队协作交接、大型重构开始前 |
+| **nexus-query** | 直接从 AST 数据查询文件结构、反向依赖、改动影响半径和耦合热点 | 开发过程中——修改接口前、重构 Sprint 期间、导航遗留代码库时 |
+
+两个技能共用同一套底层脚本。`nexus-query` 可以直接复用 `nexus-mapper` 产出的 `.nexus-map/`，也可以按需独立生成 `ast_nodes.json`。
+
+---
+
+## nexus-mapper
 
 nexus-mapper 是一个给 AI Agent 用的仓库建图 skill。它分析本地代码库，写出持久化的 `.nexus-map/` 知识库，让后续会话先恢复全局上下文，再进入具体任务，而不是每次都从零摸索。
 
-它不是一个泛泛的“总结仓库”提示词。这个 skill 会按 PROBE 协议分阶段执行，先产出证据，再挑战初始判断，最后才写正式资产。它解决的是 AI 最常见的一个问题：把第一眼印象误写成结论。
+它不是一个泛泛的"总结仓库"提示词。这个 skill 会按 PROBE 协议分阶段执行，先产出证据，再挑战初始判断，最后才写正式资产。它解决的是 AI 最常见的一个问题：把第一眼印象误写成结论。
 
 ```
 .nexus-map/
@@ -33,24 +44,51 @@ nexus-mapper 是一个给 AI Agent 用的仓库建图 skill。它分析本地代
 │   └── domains.md        ← 这个代码库使用的领域语言，人能读懂的版本。
 ├── hotspots/             ← 仅在存在 git 元数据时生成。
 │   └── git_forensics.md  ← 变更最频繁的文件，以及总是同时变更的文件对。
-│                           改动这些地方最容易出问题。
 └── raw/                  ← 原始数据：AST 节点、git 统计、过滤后的文件树。
 ```
 
 `INDEX.md` 是唯一的冷启动入口，刻意保持很小。AI 可以一次性完整读入，先恢复全局，再按需下钻。
 
-所有生成的 Markdown 文件都带 provenance 头部，至少写明 `verified_at` 和降级说明。若仓库包含当前未支持的语言，或某些语言只有 Module 级 AST 覆盖，nexus-mapper 必须显式说明，不能夸大解析可信度。
+---
 
-如果仓库需要补充超出内建范围的语言支持，优先用 `--add-extension` 和 `--add-query` 扩展本次运行。只有当配置太长、不适合塞进一条命令时，再改用 `--language-config <JSON_FILE>`。
+## nexus-query
+
+nexus-query 在开发过程中回答精准的结构问题——不用读完整个仓库，也不用重跑整个 PROBE 流程。
+
+```bash
+# 文件骨架：类、方法、行号、import 清单
+python skills/nexus-query/scripts/query_graph.py ast_nodes.json --file src/core/vision.py
+
+# 反向依赖：谁在引用这个模块？
+python skills/nexus-query/scripts/query_graph.py ast_nodes.json --who-imports src.core.vision
+
+# 影响半径：上游依赖 + 下游被依赖者
+python skills/nexus-query/scripts/query_graph.py ast_nodes.json --impact src/core/vision.py \
+  --git-stats git_stats.json
+
+# 架构核心节点：最高扇入/扇出的模块
+python skills/nexus-query/scripts/query_graph.py ast_nodes.json --hub-analysis
+
+# 按顶层目录聚合的结构摘要
+python skills/nexus-query/scripts/query_graph.py ast_nodes.json --summary
+```
+
+零额外依赖。纯 Python 标准库。`ast_nodes.json` 可以来自已有的 `.nexus-map/raw/`，也可以按需现场生成。
+
+**最有价值的场景**：
+- 改接口前：`--who-imports` 告诉你哪些地方会炸
+- Sprint 估时前：`--impact --git-stats` 量化风险和工作量
+- 遗留代码库里：`--file` 秒出骨架，不用读 3000 行
+- 架构评审时：`--hub-analysis` 找出真正的耦合核心，而不是名叫 `core/` 的那个
 
 ---
 
-## 它为什么不一样
+## 它们为什么不一样
 
-- 它是阶段门控的，PROFILE、REASON、OBJECT、BENCHMARK、EMIT 都不能跳。
-- 它强制区分 implemented、planned、inferred，避免把设计稿当成已实现代码。
-- 地图生成后，还保留 `query_graph.py` 这个“放大镜”做局部验证。
-- 它的目标不是当前这次回答，而是后续所有会话都能少走弯路。
+- **阶段门控**：nexus-mapper 的 PROFILE、REASON、OBJECT、BENCHMARK、EMIT 都不能跳。
+- **诚实的 provenance**：两个技能都强制区分 `implemented`、`planned`、`inferred`。解析不完整时也必须说明。
+- **可组合**：nexus-query 可以独立使用，也可以叠加在 nexus-mapper 的地图上。
+- **面向未来的会话**：每个产物都是为了下次能更快进入状态而设计的。
 
 ---
 
@@ -66,7 +104,11 @@ nexus-mapper 是一个给 AI Agent 用的仓库建图 skill。它分析本地代
 **首次使用前安装脚本依赖：**
 
 ```bash
+# nexus-mapper
 pip install -r skills/nexus-mapper/scripts/requirements.txt
+
+# nexus-query（同一套依赖）
+pip install -r skills/nexus-query/scripts/requirements.txt
 ```
 
 ---
@@ -74,14 +116,19 @@ pip install -r skills/nexus-mapper/scripts/requirements.txt
 ## 安装
 
 ```bash
-npx skills add haaaiawd/nexus-mapper
+# 完整套件
+npx skills add haaaiawd/nexus-skills
+
+# 或只安装你需要的技能
+npx skills add haaaiawd/nexus-skills/skills/nexus-mapper
+npx skills add haaaiawd/nexus-skills/skills/nexus-query
 ```
 
 适配 Claude Code、GitHub Copilot、Cursor、Cline，以及所有支持 `SKILL.md` 协议的 AI 客户端。
 
 ---
 
-## 怎么使用
+## 怎么使用 nexus-mapper
 
 把本地仓库路径告诉你的 AI：
 
@@ -95,92 +142,27 @@ AI 跑完整个协议后，会在仓库根目录写入 `.nexus-map/`。下次打
 读取 .nexus-map/INDEX.md
 ```
 
-这样先恢复全局上下文。
-
-如果任务已经进入局部判断，不要只靠摘要猜。直接用按需查询工具去验证结构和依赖。
-
-为了让这种行为在长期更稳定，建议把一小段持久规则写进宿主工具的记忆文件，例如 `AGENTS.md`、`CLAUDE.md` 或类似文件：
+为了让这种行为在长期更稳定，建议把一小段持久规则写进 `AGENTS.md`、`CLAUDE.md` 或类似文件：
 
 ```md
 如果仓库中存在 .nexus-map/INDEX.md，开始任务前必须先阅读它恢复全局上下文。
 
-如果任务需要判断局部结构、依赖关系、影响半径或边界归属，优先回读 nexus-mapper 的按需查询说明，并使用 query_graph.py 基于 .nexus-map/raw/ast_nodes.json 做验证；不要重新猜结构。
+如果任务需要判断局部结构、依赖关系、影响半径或边界归属，使用 query_graph.py 基于 .nexus-map/raw/ast_nodes.json 做验证；不要重新猜结构。
 
-当一次任务改变了项目的结构认知时，应在交付前评估是否同步更新 .nexus-map。结构认知包括：系统边界、入口、依赖关系、测试面、语言支持、路线图或阶段性进度事实。纯局部实现细节默认不更新。
-
-不要把 .nexus-map 视为静态文档；它是项目记忆的一部分。新对话优先读取，重要变更后按需同步。
+当一次任务改变了项目的结构认知时，应在交付前评估是否同步更新 .nexus-map。
 ```
-
----
-
-## 按需查询
-
-`scripts/query_graph.py` 读取已生成的 `ast_nodes.json`，无需重新解析即可回答结构问题。
-
-```bash
-# 查看文件结构与 import
-python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --file src/server/handler.py
-
-# 查询谁引用了某个模块
-python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --who-imports src.server.handler
-
-# 影响半径（上游依赖 + 下游被引用者）
-python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --impact src/server/handler.py
-
-# 叠加 git 风险与耦合数据
-python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --impact src/server/handler.py \
-  --git-stats .nexus-map/raw/git_stats.json
-
-# 高扇入/高扇出核心节点
-python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --hub-analysis
-
-# 按目录聚合的结构摘要
-python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --summary
-```
-
-零额外依赖。纯 Python 标准库。
-
-适合拿它回答这类问题：
-
-- 这个文件里到底有什么？
-- 谁在引用这个模块？
-- 我改这个文件，会影响到哪里？
-- 哪些模块是真正的内部枢纽？
-
-PROBE 协议会在 REASON / OBJECT / EMIT 阶段使用它，你也可以在开发过程中直接调用。
-
----
-
-## PROFILE 阶段命令
-
-如果你是直接跑脚本，当前推荐的基础流程是：
-
-```bash
-python skills/nexus-mapper/scripts/extract_ast.py <repo_path> \
-  --file-tree-out .nexus-map/raw/file_tree.txt \
-  > <repo_path>/.nexus-map/raw/ast_nodes.json
-
-python skills/nexus-mapper/scripts/git_detective.py <repo_path> --days 90 \
-  > <repo_path>/.nexus-map/raw/git_stats.json
-```
-
-`--file-tree-out` 和 AST 收集共用同一套排除规则，因此 file tree 不会和 AST 扫描结果漂移。
 
 ---
 
 ## 语言支持
 
-按文件扩展名自动 dispatch，支持 17+ 语言：
+按文件扩展名自动 dispatch，支持 30+ 语言：
 
 Python · JavaScript · JSX · TypeScript · TSX · Bash · Java · Go · Rust · C++ · C · C# · Kotlin · Ruby · Swift · Scala · PHP · Lua · Elixir · GDScript · Dart · Haskell · Clojure · SQL · Proto · Solidity · Vue · Svelte · R · Perl
 
-这些语言的覆盖深度并不完全相同：有些是完整结构提取，有些当前只有 Module 级别，还有些虽然被显式要求支持了，但当前环境无法加载 parser。最终输出里的 metadata 会诚实标出这一点。
-
-未知扩展名静默跳过。多语言混合仓库无需任何配置。
+这些语言的覆盖深度并不完全相同：有些是完整结构提取，有些只有 Module 级别。最终输出里的 metadata 会诚实标出这一点。
 
 ### 扩展语言支持
-
-如果内建覆盖还不够，优先直接在命令行扩展本次运行：
 
 ```bash
 python skills/nexus-mapper/scripts/extract_ast.py <repo_path> \
@@ -188,64 +170,45 @@ python skills/nexus-mapper/scripts/extract_ast.py <repo_path> \
   --add-query templ struct "(component_declaration name: (identifier) @class.name) @class.def"
 ```
 
-如果配置较多，不适合直接写在一条命令中，再显式传入 JSON 文件：
-
-```json
-{
-  "extensions": {
-    ".templ": "templ",
-    ".gd": "gdscript"
-  },
-  "queries": {
-    "templ": {
-      "struct": "(component_declaration name: (identifier) @class.name) @class.def",
-      "imports": ""
-    }
-  },
-  "unsupported_extensions": {
-    ".legacydsl": "legacydsl"
-  }
-}
-```
-
-```bash
-python skills/nexus-mapper/scripts/extract_ast.py <repo_path> \
-  --language-config /custom/path/to/language-config.json
-```
-
-这样所有语言都走同一套契约：有 parser 且有 query 就是 `structural coverage`，只有 parser 没有 query 就是 `module-only`，agent 明确要求支持但当前环境加载不到 parser 就是 `configured-but-unavailable`，明确标记不支持的仍然归为 `unsupported`。
-
 ---
 
 ## 仓库结构
 
 ```
-nexus-mapper/
+nexus-skills/
 ├── README.md
 ├── README.zh-CN.md
 ├── Icon.png
-├── evals/                        ← 评测集与测试计划，用于持续迭代 skill
+├── evals/
 └── skills/
-  └── nexus-mapper/
-    ├── SKILL.md              ← 执行协议与守则
-    ├── scripts/
-    │   ├── extract_ast.py    ← 多语言 AST 提取器
-    │   ├── query_graph.py    ← 按需 AST 查询工具（文件结构、影响半径、核心节点…）
-    │   ├── git_detective.py  ← Git 热点与耦合分析
-    │   ├── languages.json    ← 共享语言配置（扩展名映射 + Tree-sitter 查询）
-    │   └── requirements.txt
-    └── references/
-      ├── 01-probe-protocol.md
-      ├── 02-output-schema.md
-      ├── 03-edge-cases.md
-      ├── 04-object-framework.md
-      └── 05-language-customization.md
+    ├── nexus-mapper/
+    │   ├── SKILL.md              ← 执行协议与守则
+    │   ├── scripts/
+    │   │   ├── extract_ast.py    ← 多语言 AST 提取器
+    │   │   ├── query_graph.py    ← 按需 AST 查询工具
+    │   │   ├── git_detective.py  ← Git 热点与耦合分析
+    │   │   ├── languages.json    ← 语言配置
+    │   │   └── requirements.txt
+    │   └── references/
+    │       ├── 01-probe-protocol.md
+    │       ├── 02-output-schema.md
+    │       ├── 03-edge-cases.md
+    │       ├── 04-object-framework.md
+    │       ├── 05-language-customization.md
+    │       └── 06-query-guide.md
+    └── nexus-query/
+        ├── SKILL.md              ← 查询模式与使用场景
+        └── scripts/
+            ├── extract_ast.py
+            ├── query_graph.py
+            ├── git_detective.py
+            ├── languages.json
+            └── requirements.txt
 ```
-
-如果只是把 skill 本体复制到其他 agent 工作区，复制 `skills/nexus-mapper/` 这一层即可。
 
 ---
 
 ## License
 
 MIT
+
