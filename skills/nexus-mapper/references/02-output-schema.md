@@ -253,3 +253,78 @@ unknown: 仓库没有 git 历史，无法判断真实热点文件。
 - 可以保留不确定，但必须指出缺失的是哪一类证据
 - 结论段优先写已验证事实，再写尚未验证部分
 - 不要为了显得自信而删除真实存在的证据缺口
+
+---
+
+## query_graph.py 输出格式参考（非写入文件，stdout 输出）
+
+`query_graph.py` 读取 `raw/ast_nodes.json`，输出 agent 友好的精简文本。以下是各查询模式的输出结构供参考。
+
+### --file
+
+```
+=== <file_path> ===
+Module: <module_id> (<lines> lines, <lang>)
+
+Classes:
+  <ClassName> (L<start>-L<end>)
+    ├─ <method_name> (L<start>-L<end>)
+    └─ <method_name> (L<start>-L<end>)
+
+Top-level Functions:
+  <func_name> (L<start>-L<end>)
+
+Imports:
+  → <internal_module> (<path>)
+  → <external_package> (external)
+```
+
+### --who-imports
+
+```
+=== Who imports <module>? ===
+Imported by N module(s):
+  ← <module_id> (<path>)
+```
+
+### --impact
+
+```
+=== Impact radius: <file_path> ===
+
+Depends on (this file imports):
+  → <module_id> (<path>)
+  → <package> (external)
+
+Depended by (other files import this):
+  ← <module_id> (<path>)
+
+Impact summary: N upstream dependencies, M downstream dependents
+
+# 以下仅在传入 --git-stats 且该文件存在 hotspot/coupling 数据时输出
+Git risk: 🔴 high (N changes in 90 days)
+Coupled files (co-change):
+  - <peer_path> (coupling: 0.XX, N co-changes)
+```
+
+### --hub-analysis
+
+```
+=== Hub Analysis ===
+
+Top fan-in (most imported by others):
+  1. <module_id> — imported by N module(s)  [<path>]
+
+Top fan-out (imports most others):
+  1. <module_id> — imports N internal module(s)  [<path>]
+```
+
+### --summary
+
+```
+=== Directory Summary ===
+
+<dir>/ (N modules, N classes, N functions, N lines)
+  Key classes: ClassA, ClassB, ...
+  Key imports from: <other_dir>, ...
+```

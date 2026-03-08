@@ -100,6 +100,35 @@ AI 完成分析后会在仓库根目录写入 `.nexus-map/`。下次打开这个
 
 ---
 
+## 按需查询
+
+`scripts/query_graph.py` 读取已生成的 `ast_nodes.json`，无需重新解析即可回答结构问题。
+
+```bash
+# 查看文件结构与 import
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --file src/server/handler.py
+
+# 查询谁引用了某个模块
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --who-imports src.server.handler
+
+# 影响半径（上游依赖 + 下游被引用者）
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --impact src/server/handler.py
+
+# 叠加 git 风险与耦合数据
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --impact src/server/handler.py \
+  --git-stats .nexus-map/raw/git_stats.json
+
+# 高扇入/高扇出核心节点
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --hub-analysis
+
+# 按目录聚合的结构摘要
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --summary
+```
+
+零额外依赖——纯 Python 标准库。PROBE 协议在 REASON / OBJECT / EMIT 阶段使用它辅助认知生成，你也可以在日常开发中随时调用。
+
+---
+
 ## 语言支持
 
 按文件扩展名自动 dispatch，支持 17+ 语言：
@@ -162,7 +191,9 @@ nexus-mapper/
     ├── SKILL.md              ← 执行协议与守则
     ├── scripts/
     │   ├── extract_ast.py    ← 多语言 AST 提取器
+    │   ├── query_graph.py    ← 按需 AST 查询工具（文件结构、影响半径、核心节点…）
     │   ├── git_detective.py  ← Git 热点与耦合分析
+    │   ├── languages.json    ← 共享语言配置（扩展名映射 + Tree-sitter 查询）
     │   └── requirements.txt
     └── references/
       ├── 01-probe-protocol.md

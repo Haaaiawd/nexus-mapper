@@ -63,7 +63,7 @@ description: Analyze a local repository and generate a persistent `.nexus-map/` 
 repo_path: 目标仓库的本地绝对路径（必填）
 ```
 
-**语言支持**：自动按文件扩展名 dispatch，优先用 bundled structural queries 提取模块/类/函数；若 grammar 可加载但当前没有结构 query，则至少保留 Module 级节点并在输出中标注 `module-only coverage`。当前已接入的常见语言包括 Python/JavaScript/TypeScript/TSX/Bash/Java/Go/Rust/C#/C/C++/Kotlin/Ruby/Swift/Scala/PHP/Lua/Elixir/GDScript/Dart/Haskell/Clojure/SQL/Proto/Solidity/Vue/Svelte/R/Perl。
+**语言支持**：自动按文件扩展名 dispatch，语言配置（扩展名映射 + Tree-sitter 查询）存储在 `scripts/languages.json`，优先用 bundled structural queries 提取模块/类/函数；若 grammar 可加载但当前没有结构 query，则至少保留 Module 级节点并在输出中标注 `module-only coverage`。当前已接入的常见语言包括 Python/JavaScript/TypeScript/TSX/Bash/Java/Go/Rust/C#/C/C++/Kotlin/Ruby/Swift/Scala/PHP/Lua/Elixir/GDScript/Dart/Haskell/Clojure/SQL/Proto/Solidity/Vue/Svelte/R/Perl。
 
 **不支持的语言扩展**：若仓库含有内置未支持的语言文件，agent 可通过命令行参数动态赋予支持：
 - `--add-extension .templ=templ` 添加新文件扩展名映射（可重复）
@@ -107,6 +107,48 @@ repo_path: 目标仓库的本地绝对路径（必填）
 如果 PROFILE 阶段发现已知但未支持的语言文件，`provenance` 必须明确写出哪些部分属于人工推断或降级分析。
 如果 PROFILE 阶段发现 `module-only coverage`，也必须写清楚：这些语言已被计入 AST 文件覆盖，但没有类/函数级结构保证。
 如果 PROFILE 阶段发现某个通过覆盖配置声明的语言仍然无法加载 parser，也必须写清楚：这是 `configured-but-unavailable`，不能伪装成已覆盖。
+
+---
+
+## 🔍 按需查询工具
+
+`scripts/query_graph.py` 读取 `raw/ast_nodes.json`，提供精准的局部依赖查询。在 PROBE 各阶段辅助认知生成，也可在后续开发中按需使用。
+
+**零额外依赖**——纯 Python 标准库，输入 `ast_nodes.json` 即可运行。
+
+### 查询模式
+
+```bash
+# 查看某个文件的类/函数结构及 import 清单
+python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --file <path>
+
+# 反向依赖查询：谁引用了这个模块
+python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --who-imports <module_or_path>
+
+# 影响半径：上游依赖 + 下游被依赖者
+python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --impact <path>
+
+# 叠加 git 风险与耦合数据（可选）
+python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --impact <path> \
+  --git-stats <git_stats.json>
+
+# 高扇入/扇出核心节点识别
+python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --hub-analysis [--top N]
+
+# 按目录聚合的结构摘要（为 EMIT 阶段 systems.md 提供数据支撑）
+python $SKILL_DIR/scripts/query_graph.py <ast_nodes.json> --summary
+```
+
+### 使用时机
+
+| 阶段 | 推荐查询 | 用途 |
+|------|---------|------|
+| REASON | `--hub-analysis` | 用扇入/扇出数据验证核心系统假说，而不是仅凭目录名猜测 |
+| OBJECT | `--impact`, `--impact --git-stats` | 验证边界假设，查看真实上下游依赖；叠加 git 热度和耦合度 |
+| EMIT | `--summary`, `--file` | 生成 `systems.md` / `dependencies.md` 的数据支撑 |
+| 开发中 | `--file`, `--who-imports`, `--impact` | Bug 调查、修改影响评估、重构分析 |
+
+> **定位**：`.nexus-map/` 是"地图"，`query_graph.py` 是"放大镜"。地图帮你定位大方向，放大镜帮你看清局部细节。
 
 ---
 

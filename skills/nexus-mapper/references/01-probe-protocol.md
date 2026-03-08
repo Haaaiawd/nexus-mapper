@@ -74,6 +74,10 @@ python $SKILL_DIR/scripts/git_detective.py $repo_path --days 90 \
 **执行要求**
 - 进行深度思考，逐步推演足够支撑结论的关键决策点，通常为 3-5 个
 - 识别仓库的主要 System 级节点，通常为 1-5 个；不要为了凑数量把纯技术细节拆成独立系统
+- **[推荐]** 运行 hub-analysis 用扇入/扇出数据验证核心系统假说，而不是仅凭目录名猜测：
+  ```bash
+  python $SKILL_DIR/scripts/query_graph.py $repo_path/.nexus-map/raw/ast_nodes.json --hub-analysis
+  ```
 
 **记录格式**（工作记忆，不写文件）
 ```
@@ -135,7 +139,12 @@ Q2: application/weaving/ 目录命名暗示「语义织入」，但其下
 
 **对每个质疑点执行验证**
 1. 用 `grep_search` / `view_file` 查找具体证据
-2. 判断结果：
+2. **[推荐]** 用 `query_graph.py --impact` 查看目标文件的真实上下游依赖，可叠加 `--git-stats` 获取变更热度和耦合信息：
+   ```bash
+   python $SKILL_DIR/scripts/query_graph.py $repo_path/.nexus-map/raw/ast_nodes.json \
+     --impact <目标文件> --git-stats $repo_path/.nexus-map/raw/git_stats.json
+   ```
+3. 判断结果：
    - 质疑成立 → 修正节点的 `code_path` 或 `responsibility`，在 LOG 中标记「修正」
    - 质疑不成立 → 确认原假设，标记「验证通过」
 
@@ -166,6 +175,12 @@ Q2: application/weaving/ 目录命名暗示「语义织入」，但其下
 | `.nexus-map/` 不存在 | 直接继续 |
 | `.nexus-map/` 存在且 `INDEX.md` 有效 | 询问用户：「检测到已有分析结果，是否覆盖？[y/n]」 |
 | `.nexus-map/` 存在但文件不完整 | 「检测到未完成分析，将重新生成」，继续 |
+
+**[推荐] 写入前先获取结构摘要**
+```bash
+python $SKILL_DIR/scripts/query_graph.py $repo_path/.nexus-map/raw/ast_nodes.json --summary
+```
+此命令按目录聚合模块/类/函数计数和关键导入方向，为写 `systems.md` 和 `dependencies.md` 提供数据支撑。对需要详细描述的系统，可进一步用 `--file <path>` 查看具体文件结构。
 
 **写入顺序（先写 `.tmp/`，全部成功后整体移动）**
 ```

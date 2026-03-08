@@ -99,6 +99,35 @@ Treat .nexus-map as part of the project's memory, not as static documentation.
 
 ---
 
+## On-demand queries
+
+`scripts/query_graph.py` reads the generated `ast_nodes.json` and answers structural questions without re-parsing.
+
+```bash
+# File structure and imports
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --file src/server/handler.py
+
+# Who imports a module?
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --who-imports src.server.handler
+
+# Impact radius (upstream + downstream)
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --impact src/server/handler.py
+
+# Enrich with git risk and coupling data
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --impact src/server/handler.py \
+  --git-stats .nexus-map/raw/git_stats.json
+
+# Top fan-in / fan-out hubs
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --hub-analysis
+
+# Per-directory summary
+python scripts/query_graph.py .nexus-map/raw/ast_nodes.json --summary
+```
+
+Zero extra dependencies — pure Python stdlib. The PROBE protocol uses it during REASON, OBJECT, and EMIT stages; you can also call it ad-hoc during development.
+
+---
+
 ## Language support
 
 Parses 17+ languages automatically by file extension.
@@ -161,7 +190,9 @@ nexus-mapper/
     ├── SKILL.md              ← Execution protocol and guardrails
     ├── scripts/
     │   ├── extract_ast.py    ← Multi-language AST extractor
+    │   ├── query_graph.py    ← On-demand AST query tool (file, impact, hub-analysis…)
     │   ├── git_detective.py  ← Git hotspot and coupling analysis
+    │   ├── languages.json    ← Shared language config (extensions + Tree-sitter queries)
     │   └── requirements.txt
     └── references/
       ├── 01-probe-protocol.md

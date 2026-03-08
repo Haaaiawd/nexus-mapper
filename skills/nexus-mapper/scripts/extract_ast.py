@@ -19,223 +19,36 @@ EXCLUDE_DIRS = {'.git', '__pycache__', '.venv', 'venv', 'node_modules',
                 '.nexus-map', '.tox', '.eggs', 'target', 'cmake-build-debug',
                 '.vs', 'out', '_build', 'vendor'}
 
-# 已知会出现在代码仓库中、但当前脚本不会解析 AST 的语言。
-# 它们必须在输出中显式暴露，避免调用方误以为“未出现 == 已覆盖”。
-BUILTIN_KNOWN_UNSUPPORTED_EXTENSIONS: dict[str, str] = {
-}
+# ── 内建语言配置：从同目录 languages.json 加载 ────────────────────
+_LANGUAGES_JSON = Path(__file__).parent / 'languages.json'
 
-# 文件扩展名 → tree-sitter-language-pack 语言名
-BUILTIN_EXTENSION_MAP: dict[str, str] = {
-    '.py': 'python', '.pyw': 'python', '.pyi': 'python',
-    '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
-    '.ts': 'typescript', '.mts': 'typescript',
-    '.tsx': 'tsx',
-    '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash',
-    '.java': 'java',
-    '.go': 'go',
-    '.rs': 'rust',
-    '.cs': 'csharp',
-    '.c': 'c', '.h': 'c',
-    '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.hpp': 'cpp', '.hxx': 'cpp',
-    '.kt': 'kotlin', '.kts': 'kotlin',
-    '.rb': 'ruby',
-    '.php': 'php',
-    '.lua': 'lua',
-    '.swift': 'swift',
-    '.scala': 'scala', '.sc': 'scala',
-    '.ex': 'elixir', '.exs': 'elixir',
-    '.gd': 'gdscript',
-    '.dart': 'dart',
-    '.hs': 'haskell',
-    '.clj': 'clojure', '.cljs': 'clojure', '.cljc': 'clojure',
-    '.sql': 'sql',
-    '.proto': 'proto',
-    '.sol': 'solidity',
-    '.vue': 'vue',
-    '.svelte': 'svelte',
-    '.r': 'r',
-    '.pl': 'perl', '.pm': 'perl',
-}
 
-# 每语言的 Tree-sitter Query：结构（类/函数）+ 导入
-# struct captures: class.def/class.name, func.def/func.name
-# imports captures: mod
-BUILTIN_LANG_QUERIES: dict[str, dict[str, str]] = {
-    'python': {
-        'struct': """
-            (class_definition name: (identifier) @class.name) @class.def
-            (function_definition name: (identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_statement name: (dotted_name) @mod)
-            (import_from_statement module_name: (dotted_name) @mod)
-        """,
-    },
-    'javascript': {
-        'struct': """
-            (class_declaration name: (identifier) @class.name) @class.def
-            (function_declaration name: (identifier) @func.name) @func.def
-            (method_definition name: (property_identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_statement source: (string (string_fragment) @mod))
-        """,
-    },
-    'typescript': {
-        'struct': """
-            (class_declaration name: (type_identifier) @class.name) @class.def
-            (function_declaration name: (identifier) @func.name) @func.def
-            (method_definition name: (property_identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_statement source: (string (string_fragment) @mod))
-        """,
-    },
-    'tsx': {
-        'struct': """
-            (class_declaration name: (type_identifier) @class.name) @class.def
-            (function_declaration name: (identifier) @func.name) @func.def
-            (method_definition name: (property_identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_statement source: (string (string_fragment) @mod))
-        """,
-    },
-    'java': {
-        'struct': """
-            (class_declaration name: (identifier) @class.name) @class.def
-            (method_declaration name: (identifier) @func.name) @func.def
-            (interface_declaration name: (identifier) @class.name) @class.def
-        """,
-        'imports': """
-            (import_declaration (scoped_identifier) @mod)
-        """,
-    },
-    'go': {
-        'struct': """
-            (type_declaration (type_spec name: (type_identifier) @class.name)) @class.def
-            (function_declaration name: (identifier) @func.name) @func.def
-            (method_declaration name: (field_identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_spec path: (interpreted_string_literal) @mod)
-        """,
-    },
-    'rust': {
-        'struct': """
-            (struct_item name: (type_identifier) @class.name) @class.def
-            (enum_item name: (type_identifier) @class.name) @class.def
-            (function_item name: (identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (use_declaration argument: (scoped_identifier) @mod)
-            (use_declaration argument: (identifier) @mod)
-        """,
-    },
-    'csharp': {
-        'struct': """
-            (class_declaration name: (identifier) @class.name) @class.def
-            (method_declaration name: (identifier) @func.name) @func.def
-            (interface_declaration name: (identifier) @class.name) @class.def
-        """,
-        'imports': """
-            (using_directive (qualified_name) @mod)
-            (using_directive (identifier) @mod)
-        """,
-    },
-    'cpp': {
-        'struct': """
-            (class_specifier name: (type_identifier) @class.name) @class.def
-            (function_definition
-                declarator: (function_declarator
-                    declarator: (identifier) @func.name)) @func.def
-        """,
-        'imports': """
-            (preproc_include path: (system_lib_string) @mod)
-            (preproc_include path: (string_literal) @mod)
-        """,
-    },
-    'c': {
-        'struct': """
-            (struct_specifier name: (type_identifier) @class.name) @class.def
-            (function_definition
-                declarator: (function_declarator
-                    declarator: (identifier) @func.name)) @func.def
-        """,
-        'imports': """
-            (preproc_include path: (system_lib_string) @mod)
-            (preproc_include path: (string_literal) @mod)
-        """,
-    },
-    'kotlin': {
-        'struct': """
-            (class_declaration (type_identifier) @class.name) @class.def
-            (function_declaration (simple_identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_header (identifier) @mod)
-        """,
-    },
-    'ruby': {
-        'struct': """
-            (class name: (constant) @class.name) @class.def
-            (method name: (identifier) @func.name) @func.def
-        """,
-        'imports': '',  # Ruby require 语法较复杂，暂跳过
-    },
-    'swift': {
-        'struct': """
-            (class_declaration name: (type_identifier) @class.name) @class.def
-            (function_declaration name: (simple_identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_declaration (identifier) @mod)
-        """,
-    },
-    'scala': {
-        'struct': """
-            (class_definition name: (identifier) @class.name) @class.def
-            (function_definition name: (identifier) @func.name) @func.def
-        """,
-        'imports': """
-            (import_declaration importees: (import_selectors selector: (import_selector name: (identifier) @mod)))
-        """,
-    },
-    'lua': {
-        'struct': """
-            (function_declaration name: (identifier) @func.name) @func.def
-        """,
-        'imports': '',
-    },
-    'php': {
-        'struct': """
-            (class_declaration name: (name) @class.name) @class.def
-            (method_declaration name: (name) @func.name) @func.def
-            (function_definition name: (name) @func.name) @func.def
-        """,
-        'imports': """
-            (namespace_use_declaration (namespace_use_clause (qualified_name (name) @mod)))
-        """,
-    },
-    'elixir': {
-        'struct': """
-            (call target: (identifier) @_keyword
-                  arguments: (arguments (alias) @class.name)
-                  (#match? @_keyword "^(defmodule|defprotocol)$")) @class.def
-            (call target: (identifier) @_keyword
-                  arguments: (arguments (identifier) @func.name)
-                  (#match? @_keyword "^(def|defp)$")) @func.def
-        """,
-        'imports': '',
-    },
-    'gdscript': {
-        'struct': """
-            (class_name_statement name: (name) @class.name) @class.def
-            (function_definition name: (name) @func.name) @func.def
-        """,
-        'imports': '',
-    },
-}
+def _load_builtin_languages() -> tuple[dict[str, str], dict[str, dict[str, str]], dict[str, str]]:
+    """从 languages.json 加载内建的扩展名映射、Tree-sitter 查询和已知不支持的扩展名。"""
+    try:
+        data = json.loads(_LANGUAGES_JSON.read_text(encoding='utf-8'))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"[ERROR] Failed to load {_LANGUAGES_JSON}: {exc}\n")
+        sys.exit(1)
+
+    extensions: dict[str, str] = data.get('extensions', {})
+    raw_queries: dict[str, dict[str, str]] = data.get('queries', {})
+    unsupported: dict[str, str] = data.get('unsupported_extensions', {})
+
+    # 规范化 queries：确保每个语言都有 struct 和 imports 键
+    queries: dict[str, dict[str, str]] = {}
+    for lang, parts in raw_queries.items():
+        queries[lang] = {
+            'struct': parts.get('struct', ''),
+            'imports': parts.get('imports', ''),
+        }
+
+    return extensions, queries, unsupported
+
+
+BUILTIN_EXTENSION_MAP, BUILTIN_LANG_QUERIES, BUILTIN_KNOWN_UNSUPPORTED_EXTENSIONS = (
+    _load_builtin_languages()
+)
 
 def _normalize_extension(ext: str) -> str:
     normalized = ext.strip().lower()
