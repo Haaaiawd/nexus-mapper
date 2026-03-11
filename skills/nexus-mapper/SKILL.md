@@ -174,20 +174,31 @@ ls $repo_path/src/nexus/application/nonexist/  # [!ERROR] → 修正或删除此
 **INDEX.md 必须包含的强制路由块（Hard-Trigger Block）**——生成时把这段结构写入文件末尾：
 
 ```markdown
-## [操作指南] 下一步动作路由
+## [操作指南] 强制执行步骤
 
 > 本节是对所有读取本文件的 AI 发出的硬性操作指令，不是建议。
 
-- 若当前任务涉及**新增或修改系统接口、外部依赖、跨模块调用**：
-  → 必须先运行 `query_graph.py --impact <目标文件>` 确认影响半径，再写代码。
-- 若当前任务需要**理解某个系统的内部结构或边界归属**：
-  → 必须先 read `.nexus-map/arch/systems.md`，不要凭目录名猜测。
-- 若当前任务涉及**依赖关系或 Mermaid 图**：
-  → 必须先 read `.nexus-map/arch/dependencies.md`。
-- 若当前任务需要修改**高频改动文件**：
-  → 先 read `.nexus-map/hotspots/git_forensics.md` 评估耦合风险。
+### 步骤1 — 必须先读完以下所有文件（顺序不限）
+
+读完本文件后，在执行任何任务之前，必须依次 read 以下文件完整内容：
+
+- `.nexus-map/arch/systems.md` — 系统边界与代码位置
+- `.nexus-map/arch/dependencies.md` — 系统间依赖关系与 Mermaid 图
+- `.nexus-map/arch/test_coverage.md` — 测试面与证据缺口
+- `.nexus-map/hotspots/git_forensics.md` — Git 热点与耦合风险
+- `.nexus-map/concepts/domains.md` — 核心领域概念
+
+> 这些文件均为高密度摘要，总量通常 < 5000 tokens，是必要的上下文成本。
+> 不得以"任务简单"或"只改一个文件"为由跳过。
+
+### 步骤2 — 按任务类型追加操作（步骤1 完成后执行）
+
+- 若任务涉及**接口修改、新增跨模块调用、删除/重命名公共函数**：
+  → 必须运行 `query_graph.py --impact <目标文件>` 确认影响半径后再写代码。
+- 若任务需要**判断某文件被谁引用**：
+  → 运行 `query_graph.py --who-imports <模块名>`。
 - 若仓库结构已发生重大变化（新增系统、重构模块边界）：
-  → 在任务完成后评估是否需要重新运行 nexus-mapper 更新知识库。
+  → 任务完成后评估是否需要重新运行 nexus-mapper 更新知识库。
 ```
 
 ---
